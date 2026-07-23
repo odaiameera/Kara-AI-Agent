@@ -16,6 +16,7 @@ import models
 import ollama_client
 import providers
 import session_db
+import time_context
 import tool_schemas
 from tools.memory_tools import (
     core_memory_append,
@@ -292,9 +293,26 @@ class KaraSession:
                 for item in TOOL_SCHEMAS
                 if item["function"]["name"] in self.allowed_tool_names
             ]
+        request_messages = [dict(message) for message in self.messages]
+        runtime_clock = time_context.build_runtime_time_context()
+        system_index = next(
+            (
+                index
+                for index, message in enumerate(request_messages)
+                if message.get("role") == "system"
+            ),
+            None,
+        )
+        if system_index is None:
+            request_messages.insert(
+                0, {"role": "system", "content": runtime_clock}
+            )
+        else:
+            base = str(request_messages[system_index].get("content") or "").rstrip()
+            request_messages[system_index]["content"] = f"{base}\n\n{runtime_clock}"
         return self.provider.chat(
             self.model,
-            self.messages,
+            request_messages,
             tools=tools if with_tools else None,
         )
 

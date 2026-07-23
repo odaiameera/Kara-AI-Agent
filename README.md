@@ -217,7 +217,9 @@ Semantic memory uses hybrid search (embeddings + keywords). If embeddings fail,
 
 Kara has a durable scheduler backed by `brain/scheduler.db`. Jobs survive gateway
 and Windows restarts and are delivered back to the authenticated Telegram chat
-that created them.
+that created them. A hidden runtime clock is also regenerated immediately before
+every model request, so Kara always receives the current local and UTC datetime,
+day, timezone, and UTC offset without displaying or persisting that metadata.
 
 | Tool | Capability |
 |---|---|
