@@ -1,108 +1,75 @@
-import os
-import json
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
+"""CLI entry point for Kara.
 
-from tools.obsidian_tools import search_obsidian, read_obsidian_note, write_obsidian_note
-
-load_dotenv()
-
-# We need a simple Core Memory structure
-CORE_MEMORY = {
-    "persona": "You are Kara, Odai's personal AI assistant. You have access to the user's Obsidian Vault for archival memory. You operate via a CLI interface. You manage your memory efficiently.",
-    "human": "The user is Odai. They use Obsidian for taking notes, tracking projects, and parking ideas.",
-    "active_task": "None"
-}
-
-def get_system_instruction() -> str:
-    return f"""
-{CORE_MEMORY['persona']}
-
-HUMAN CONTEXT:
-{CORE_MEMORY['human']}
-
-CURRENT ACTIVE TASK:
-{CORE_MEMORY['active_task']}
-
-INSTRUCTIONS:
-You have tools to access the user's Obsidian Vault. 
-- If the user asks about their notes, projects, or parked ideas, use `search_obsidian` or `read_obsidian_note` to fetch the context before answering.
-- If the user wants you to remember something, write it to the Obsidian vault using `write_obsidian_note` (e.g. creating a 'Kara Memory Bridge' note or a 'Daily Logs' note).
-- Keep your answers concise and conversational in the CLI.
+STUDY GUIDE
+-----------
+* Interactive command-line chat loop — read input, send to Kara, print replies.
+* Delegates slash commands (/models, /new, etc.) to shared gateway command handlers.
+* Wires a tool-call callback so you see when Kara uses memory or web tools.
+* Key concepts: ``while True`` loops, ``input()``, nested functions, ``if __name__ == "__main__"``.
 """
+import embeddings
+import config
+from gateway import commands as gw_commands
+from kara import KaraSession
+
+CLI_SESSION_KEY = "kara:cli:local"
+
 
 def main():
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("Please set GEMINI_API_KEY in .env")
+    # LEARN: KaraSession wraps the LLM + SQLite history; RuntimeError means missing API key or Ollama down.
+    try:
+        session = KaraSession(CLI_SESSION_KEY, channel="cli")
+    except RuntimeError as e:
+        print(e)
         return
 
-    client = genai.Client(api_key=api_key)
-    
-    tools = [search_obsidian, read_obsidian_note, write_obsidian_note]
-    
-    # Initialize the chat session
-    chat = client.chats.create(
-        model="gemini-2.5-flash",
-        config=types.GenerateContentConfig(
-            system_instruction=get_system_instruction(),
-            tools=tools,
-            temperature=0.0
-        )
-    )
+    ollama_ok = embeddings.is_available()
 
+    # LEARN: f-strings embed variables in strings; the ternary inside formats ON/OFF status.
     print("=========================================")
-    print(" Personal AI Agent Initialized (MVP)")
-    print(" Powered by Gemini + Obsidian Memory")
-    print(" Type 'exit' to quit.")
+    print(" Kara - Personal AI Agent")
+    print(" Ollama + Local Brain (core / learnings / sessions)")
+    print(f" Brain: {config.BRAIN_DIR}")
+    print(f" Provider: {session.provider_name} ({session.provider.id})")
+    print(f" Model: {session.model_name}")
+    print(
+        f" Semantic memory: {'ON (' + config.EMBED_MODEL + ')' if ollama_ok else 'OFF (no reachable embed provider)'}"
+    )
+    print(" Commands: /models  /model  /model <name>  /new  exit")
+    print(" Gateway (24/7): uv run gateway.py")
     print("=========================================")
-    
+
+    # LEARN: Infinite loop until user types exit/quit or presses Ctrl+D (EOFError).
     while True:
         try:
-            user_input = input("\\nYou: ")
-            if user_input.lower() in ['exit', 'quit']:
+            user_input = input("\nYou: ")
+            if user_input.lower() in ["exit", "quit"]:
+                session.end_session()
                 break
-                
-            response = chat.send_message(user_input)
-            
-            # Tool execution loop
-            while response.function_calls:
-                parts = []
-                for function_call in response.function_calls:
-                    func_name = function_call.name
-                    args = function_call.args
-                    print(f"\\n  [Agent is thinking... using tool: {func_name}({args})]")
-                    
-                    # Execute the tool
-                    result = ""
-                    try:
-                        if func_name == "search_obsidian":
-                            result = search_obsidian(**args)
-                        elif func_name == "read_obsidian_note":
-                            result = read_obsidian_note(**args)
-                        elif func_name == "write_obsidian_note":
-                            result = write_obsidian_note(**args)
-                        else:
-                            result = f"Error: Tool {func_name} not found."
-                    except Exception as e:
-                        result = f"Error executing {func_name}: {e}"
-                        
-                    parts.append(types.Part.from_function_response(
-                        name=func_name,
-                        response={"result": result}
-                    ))
-                
-                # Send the tool responses back to the model
-                response = chat.send_message(parts)
-                
-            if response.text:
-                print(f"\\nAgent: {response.text}")
-                
+
+            # LEARN: handle_command returns None for normal chat text, or a string for slash commands.
+            cmd_reply = gw_commands.handle_command(session, user_input)
+            if cmd_reply is not None:
+                print(f"\n{cmd_reply}")
+                continue
+
+            # LEARN: Nested function passed as callback — Kara calls this when the model invokes a tool.
+            def on_tool(name: str, args: dict) -> None:
+                print(f"\n  [Kara is using tool: {name}({args})]")
+
+            reply = session.handle_message(user_input, on_tool_call=on_tool)
+            print(f"\nAgent: {reply}")
+
         except EOFError:
+            session.end_session()
+            break
+        except KeyboardInterrupt:
+            print("\nBye!")
             break
         except Exception as e:
-            print(f"\\n[!] Unexpected Error: {e}")
+            print(f"\n[!] Unexpected Error: {e}")
 
+
+# LEARN: This guard runs main() only when you execute ``python agent.py`` directly, not when imported.
 if __name__ == "__main__":
     main()

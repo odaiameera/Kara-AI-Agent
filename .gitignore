@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Secrets / local config
+.env
+
+# Kara's brain: runtime memory state (private, machine-local)
+brain/
+
+# Downloaded CLI binaries (e.g. himalaya.exe)
+bin/
