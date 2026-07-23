@@ -24,6 +24,10 @@ from gateway import commands as gw_commands
 from gateway import restart as gw_restart
 from gateway import sessions as gw_sessions
 from gateway.platforms import tg_format
+from tools.scheduler_tools import (
+    reset_scheduler_request_context,
+    set_scheduler_request_context,
+)
 
 log = logging.getLogger("kara.gateway.telegram")
 TELEGRAM_MAX_MESSAGE = 4096
@@ -191,14 +195,23 @@ async def codex_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 def _chat_reply(user_id: int, chat_id: int | None, text: str) -> tuple[str, bool]:
     # LEARN: Returns (reply, is_rich). Slash commands are plain, terse output;
     # only Kara's LLM answers carry Markdown worth rendering as rich HTML.
-    key = session_db.build_session_key("telegram", user_id)
-    session = gw_sessions.get_session(key, channel="telegram")
-    cmd_result = gw_commands.handle_command(session, text)
-    if cmd_result is not None:
-        if text.lower() == "/restart" and chat_id is not None:
-            gw_restart.queue_restart_notification(chat_id)
-        return cmd_result, False
-    return session.handle_message(text), True
+    token = None
+    if chat_id is not None:
+        token = set_scheduler_request_context(
+            platform="telegram", chat_id=chat_id, user_id=user_id
+        )
+    try:
+        key = session_db.build_session_key("telegram", user_id)
+        session = gw_sessions.get_session(key, channel="telegram")
+        cmd_result = gw_commands.handle_command(session, text)
+        if cmd_result is not None:
+            if text.lower() == "/restart" and chat_id is not None:
+                gw_restart.queue_restart_notification(chat_id)
+            return cmd_result, False
+        return session.handle_message(text), True
+    finally:
+        if token is not None:
+            reset_scheduler_request_context(token)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -16,6 +16,7 @@ brain/
   index/         Derived vector store (embeddings cache)
   settings.json  Active Ollama model (persists across restarts)
   state.db       Conversation history (SQLite, survives gateway restarts)
+  scheduler.db   Durable reminders and autonomous recurring jobs
   logs/          gateway.log
 ```
 
@@ -180,6 +181,7 @@ Telegram commands: `/start`, `/models`, `/model`, `/model <name>`, `/new`, `/res
 | Variable | Default | Purpose |
 |---|---|---|
 | `GATEWAY_POLL_INTERVAL` | `10` | Seconds between restart/update checks |
+| `KARA_SCHEDULER_POLL_SECONDS` | `15` | Seconds between durable-job checks |
 
 ## Configuration (`.env`)
 
@@ -205,9 +207,37 @@ Telegram commands: `/start`, `/models`, `/model`, `/model <name>`, `/new`, `/res
 | `KARA_CUA_DRIVER_CMD` | Override the `cua-driver` executable path | found on `PATH` |
 | `KARA_CUA_TELEMETRY` | Opt in to cua-driver telemetry | `0` |
 | `KARA_CUA_FOCUS_SETTLE_SECONDS` | Brief delay before foreground verification | `0.2` |
+| `KARA_TIMEZONE` | Default IANA timezone for reminder and cron tools | `Europe/Dublin` |
+| `KARA_SCHEDULER_POLL_SECONDS` | Scheduler polling interval in seconds | `15` |
 
 Semantic memory uses hybrid search (embeddings + keywords). If embeddings fail,
 `search_memory` falls back to keyword search.
+
+## Reminders and autonomous scheduled jobs
+
+Kara has a durable scheduler backed by `brain/scheduler.db`. Jobs survive gateway
+and Windows restarts and are delivered back to the authenticated Telegram chat
+that created them.
+
+| Tool | Capability |
+|---|---|
+| `schedule_reminder` | Save exact text and deliver it directly without an LLM run |
+| `schedule_agent_job` | Start a fresh unattended Kara run and deliver its result |
+| `list_scheduled_jobs` | List only the current authenticated user's jobs |
+| `pause_scheduled_job` / `resume_scheduled_job` | Stop or resume future runs |
+| `run_scheduled_job_now` | Queue an owned job for the next polling cycle |
+| `delete_scheduled_job` | Permanently remove an owned job |
+
+Schedules accept an offset-aware ISO timestamp, a strict relative delay such as
+`in 15m` or `in 2h`, or a standard five-field cron expression such as
+`0 8 * * *`. Cron is evaluated in the supplied IANA timezone and therefore
+follows daylight-saving changes.
+
+Autonomous jobs have a separate safety boundary: they can use only observational
+web, memory-search, file-read, Office-read, SQLite-read, Python-inspection, and
+Windows-inventory tools. They cannot write files, send email, drive the desktop,
+execute tests, mutate memory, or recursively create more scheduled jobs. A job
+interrupted by a gateway restart is recovered with at-least-once delivery.
 
 ## Local files, Office documents, SQLite, Python, Windows, and computer use
 

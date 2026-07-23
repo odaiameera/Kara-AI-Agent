@@ -24,6 +24,13 @@ class FileWorkToolRegistrationTests(unittest.TestCase):
             "inspect_python_file",
             "validate_python_file",
             "run_python_tests",
+            "schedule_reminder",
+            "schedule_agent_job",
+            "list_scheduled_jobs",
+            "pause_scheduled_job",
+            "resume_scheduled_job",
+            "delete_scheduled_job",
+            "run_scheduled_job_now",
         }
         schema_names = {item["function"]["name"] for item in kara.TOOL_SCHEMAS}
 

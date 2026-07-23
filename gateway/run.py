@@ -19,6 +19,8 @@ from telegram import Update
 from telegram.ext import Application
 
 import config
+import scheduler
+import scheduled_runner
 import session_db
 from gateway import restart as gw_restart
 from gateway import sessions as gw_sessions
@@ -103,6 +105,7 @@ async def _post_init(app: Application) -> None:
     # LEARN: create_task schedules a coroutine to run concurrently in the background.
     asyncio.create_task(_restart_monitor(app))
     asyncio.create_task(_send_online_notifications(app))
+    asyncio.create_task(scheduled_runner.scheduler_loop(app.bot))
 
 
 async def _send_online_notifications(app: Application) -> None:
@@ -142,6 +145,7 @@ def main() -> None:
     log.info("Kara gateway booting (pid %s)", os.getpid())
     validate_config()
     session_db.init_db()
+    scheduler.init_db()
     gw_restart.release_restart_leadership()
 
     if not gw_restart.acquire_instance_lock():

@@ -59,6 +59,15 @@ from tools.windows_tools import (
     list_scheduled_tasks,
     disk_usage,
 )
+from tools.scheduler_tools import (
+    schedule_reminder,
+    schedule_agent_job,
+    list_scheduled_jobs,
+    pause_scheduled_job,
+    resume_scheduled_job,
+    delete_scheduled_job,
+    run_scheduled_job_now,
+)
 from tools.email_tools import (
     email_status,
     email_list_mailboxes,
@@ -104,6 +113,13 @@ TOOLS = [
     list_services,
     list_scheduled_tasks,
     disk_usage,
+    schedule_reminder,
+    schedule_agent_job,
+    list_scheduled_jobs,
+    pause_scheduled_job,
+    resume_scheduled_job,
+    delete_scheduled_job,
+    run_scheduled_job_now,
     email_status,
     email_list_mailboxes,
     email_list_envelopes,
@@ -128,7 +144,12 @@ def get_system_instruction(channel: str = "cli") -> str:
     channel_hint = (
         "Keep answers concise; Telegram messages should stay short unless the user asks for detail."
         if channel == "telegram"
-        else "Keep your answers concise and conversational."
+        else (
+            "This is an unattended scheduled run. Use only the tools exposed to this session, "
+            "do not request approval or attempt side effects, and return a self-contained result."
+            if channel == "scheduled"
+            else "Keep your answers concise and conversational."
+        )
     )
     return f"""{memory_store.render_core_memory()}
 
@@ -143,6 +164,7 @@ You manage your own memory, which lives in your local brain directory.
 - For SQLite, use `inspect_sqlite_database` and `query_sqlite_database`. Queries are strictly read-only and bounded; do not imply that these tools can insert, update, delete, migrate, or attach databases. Plain `.sql` files can be managed with the normal text-file tools.
 - For Python source, use `inspect_python_file` and `validate_python_file` without executing it. `run_python_tests` executes fixed `unittest discover` only inside write roots and requires the same exact two-turn approval pattern: show its returned phrase and wait for the user's exact reply before retrying with the token. Never invent or self-approve a token.
 - For Windows operations, use `system_overview`, `list_processes`, `list_services`, `list_scheduled_tasks`, and `disk_usage` to inspect live machine state. These tools are deliberately read-only. Never claim to stop a process, change a service, edit a task, or alter a disk through them.
+- For reminders and recurring work, use `schedule_reminder` to deliver exact saved text without an LLM, or `schedule_agent_job` to run a fresh autonomous Kara session with a restricted read-only tool set. Schedules must be either an ISO 8601 timestamp with an explicit offset or a standard five-field cron expression; use `Europe/Dublin` unless the user specifies another IANA timezone. Use the list/pause/resume/delete scheduler tools only for jobs owned by the current authenticated user. Never put passwords, tokens, or other secrets in a scheduled prompt.
 - `computer_use` can inspect desktop apps using accessibility data. Input actions require a two-turn approval bound to one exact PID/window/title: first request the action, then show the returned approval phrase to the user. Only retry the same action with `approval_token` after the user personally replies with that exact phrase. Never approve an action yourself. Keyboard actions automatically foreground and verify that exact window; do not split them into a separate focus action. Capture again before using an element number.
 - For email, use the Himalaya-backed tools: `email_status` first if unsure setup, then `email_list_envelopes` / `email_search`, `email_read`, and `email_mark_seen`. Only use `email_send` when the user explicitly asks to send mail; confirm recipient and subject first. Sending may be disabled until Odai enables it in .env.
 - `search_obsidian` / `read_obsidian_note` / `write_obsidian_note` are optional and only work if an external Obsidian vault is configured.
@@ -161,12 +183,16 @@ class KaraSession:
         model: str | None = None,
         *,
         fresh: bool = False,
+        allowed_tool_names: set[str] | frozenset[str] | None = None,
     ):
         # LEARN: ``*, fresh=False`` means fresh must be passed as a keyword argument only.
         self.session_key = session_key
         self.channel = channel
         self.model = model or models.get_current_model()
         self.provider = models.get_active_provider()
+        self.allowed_tool_names = (
+            frozenset(allowed_tool_names) if allowed_tool_names is not None else None
+        )
 
         if not self.provider.has_credentials:
             raise RuntimeError(
@@ -259,10 +285,17 @@ class KaraSession:
         return f"New conversation started. Model: {self.model}"
 
     def _chat(self, *, with_tools: bool = True) -> dict[str, Any]:
+        tools = TOOL_SCHEMAS
+        if self.allowed_tool_names is not None:
+            tools = [
+                item
+                for item in TOOL_SCHEMAS
+                if item["function"]["name"] in self.allowed_tool_names
+            ]
         return self.provider.chat(
             self.model,
             self.messages,
-            tools=TOOL_SCHEMAS if with_tools else None,
+            tools=tools if with_tools else None,
         )
 
     def handle_message(
@@ -300,8 +333,12 @@ class KaraSession:
                 if on_tool_call:
                     on_tool_call(func_name, args)
 
-                fn = TOOL_REGISTRY.get(func_name)
-                if fn is None:
+                if (
+                    self.allowed_tool_names is not None
+                    and func_name not in self.allowed_tool_names
+                ):
+                    result = f"Error: Tool {func_name} is not allowed in this session."
+                elif (fn := TOOL_REGISTRY.get(func_name)) is None:
                     result = f"Error: Tool {func_name} not found."
                 else:
                     try:
