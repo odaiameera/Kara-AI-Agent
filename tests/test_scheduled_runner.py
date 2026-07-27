@@ -85,6 +85,8 @@ class ScheduledRunnerTests(unittest.TestCase):
         self.assertTrue(created["fresh"])
         self.assertEqual(created["channel"], "scheduled")
         self.assertIn("read_file", created["allowed_tool_names"])
+        self.assertNotIn("read_pdf", created["allowed_tool_names"])
+        self.assertNotIn("ocr_image", created["allowed_tool_names"])
         self.assertIn("web_search", created["allowed_tool_names"])
         self.assertNotIn("write_file", created["allowed_tool_names"])
         self.assertNotIn("computer_use", created["allowed_tool_names"])

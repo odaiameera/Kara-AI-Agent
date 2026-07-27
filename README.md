@@ -203,6 +203,13 @@ Telegram commands: `/start`, `/models`, `/model`, `/model <name>`, `/new`, `/res
 | `KARA_FILE_WRITE_ROOTS` | `;`-separated roots allowed for file writes on Windows | project only |
 | `KARA_ALLOW_SENSITIVE_FILES` | Allow credential/profile paths such as `.ssh`, `.codex`, and `.env` | `0` |
 | `KARA_FILE_SEARCH_TIMEOUT` | Maximum seconds spent on one PC file search | `12` |
+| `KARA_DOCUMENT_MAX_BYTES` | Maximum PDF/image input size | `52428800` |
+| `KARA_DOCUMENT_MAX_CHARS` | Maximum extracted text returned per call | `50000` |
+| `KARA_PDF_MAX_PAGES` | Maximum PDF pages returned per call | `50` |
+| `KARA_OCR_MAX_IMAGE_PIXELS` | Maximum accepted image pixel count | `40000000` |
+| `KARA_OCR_TIMEOUT_SECONDS` | Maximum local OCR execution time | `30` |
+| `KARA_PDF_TIMEOUT_SECONDS` | Maximum total PDF worker execution time | `60` |
+| `KARA_PDF_WORKER_MEMORY_MB` | Maximum aggregate memory for the PDF/OCR worker process tree | `512` |
 | `KARA_CUA_ENABLED` | Enable the installed `cua-driver` adapter | `1` |
 | `KARA_CUA_DRIVER_CMD` | Override the `cua-driver` executable path | found on `PATH` |
 | `KARA_CUA_TELEMETRY` | Opt in to cua-driver telemetry | `0` |
@@ -241,7 +248,7 @@ Windows-inventory tools. They cannot write files, send email, drive the desktop,
 execute tests, mutate memory, or recursively create more scheduled jobs. A job
 interrupted by a gateway restart is recovered with at-least-once delivery.
 
-## Local files, Office documents, SQLite, Python, Windows, and computer use
+## Local files, documents/OCR, SQLite, Python, Windows, and computer use
 
 Kara exposes native file tools as normal model-callable functions. Relative paths
 resolve against `personal_agent/`. Read/search access includes the user's home
@@ -274,6 +281,23 @@ not need to be open.
 
 Created Office packages are reopened after saving so corrupt output is reported
 rather than presented as successful.
+
+### PDF and image OCR
+
+PDF and OCR tools are observational and use the same configured file-read roots
+and sensitive-path policy as Kara's other file tools. Files remain local: PDF
+text is extracted with PyMuPDF, while image-only PDF pages and screenshots use
+the Windows Media OCR engine already included with Windows 10/11.
+
+| Tool | Capability |
+|---|---|
+| `read_pdf` | Extract bounded embedded text from `.pdf`; OCR scanned or nearly textless pages automatically |
+| `ocr_image` | Extract local text from `.png`, `.jpg`/`.jpeg`, `.bmp`, `.tif`, and `.tiff` |
+
+The tools enforce file-size, page-count, image-pixel, response-character, and
+OCR-time limits. They do not upload documents, modify source files, bypass PDF
+passwords, or promise perfect handwriting/layout recognition. Large PDFs can be
+paged with `start_page` and `max_pages`.
 
 ### SQL and Python files
 

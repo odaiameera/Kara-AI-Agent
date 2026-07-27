@@ -13,6 +13,8 @@ class FileWorkToolRegistrationTests(unittest.TestCase):
             "move_file",
             "replace_in_file",
             "read_office_file",
+            "read_pdf",
+            "ocr_image",
             "create_word_document",
             "append_word_text",
             "create_excel_workbook",
