@@ -216,6 +216,11 @@ Telegram commands: `/start`, `/models`, `/model`, `/model <name>`, `/new`, `/res
 | `KARA_CUA_FOCUS_SETTLE_SECONDS` | Brief delay before foreground verification | `0.2` |
 | `KARA_TIMEZONE` | Default IANA timezone for reminder and cron tools | `Europe/Dublin` |
 | `KARA_SCHEDULER_POLL_SECONDS` | Scheduler polling interval in seconds | `15` |
+| `GITHUB_CLIENT_ID` | GitHub OAuth App client id (Device Flow enabled) | (required for GitHub tools) |
+| `GITHUB_OAUTH_SCOPES` | Space-separated OAuth scopes requested at login | `repo workflow gist read:org notifications` |
+| `GITHUB_GIT_TIMEOUT` | Max seconds for a single `git` subprocess call | `120` |
+| `MNEMOSYNE_BIN` | Path/command for the Mnemosyne CLI | `mnemosyne` (must be on `PATH`) |
+| `MNEMOSYNE_DB_PATH` | Optional override for Mnemosyne's SQLite database path | (Mnemosyne's own default) |
 
 Semantic memory uses hybrid search (embeddings + keywords). If embeddings fail,
 `search_memory` falls back to keyword search.
@@ -247,6 +252,124 @@ web, memory-search, file-read, Office-read, SQLite-read, Python-inspection, and
 Windows-inventory tools. They cannot write files, send email, drive the desktop,
 execute tests, mutate memory, or recursively create more scheduled jobs. A job
 interrupted by a gateway restart is recovered with at-least-once delivery.
+
+## GitHub
+
+Kara talks to GitHub over the REST API, authenticated with a real **OAuth App
++ Device Flow login** — not a personal access token (fine-grained or classic).
+The device flow needs no client secret and no redirect webserver, so it fits
+a CLI/Telegram agent cleanly.
+
+### Setup
+
+1. On github.com: **Settings → Developer settings → OAuth Apps → New OAuth App**.
+   Homepage/callback URL can be anything (`http://localhost` works); device
+   flow doesn't use them.
+2. Open the new app's settings and check **Enable Device Flow**.
+3. Copy the **Client ID** into `.env`:
+
+```
+GITHUB_CLIENT_ID=your_client_id_here
+```
+
+4. Log in:
+
+```bash
+uv run python github_auth.py login
+```
+
+Follow the printed URL + code, approve in the browser. Tokens are stored in
+`brain/auth.json` (gitignored), never in `.env`. Check status any time with
+`uv run python github_auth.py status`, or ask Kara to run `github_status`.
+
+### Scopes
+
+Default scope is `repo workflow gist read:org notifications` — full access to
+your private and public repos, Actions, gists, org read, and notifications.
+Override with `GITHUB_OAUTH_SCOPES` in `.env` before logging in (e.g. drop to
+`public_repo` for public-only access).
+
+### Tools
+
+| Tool | Capability |
+|---|---|
+| `github_status` | Connection state, granted scopes, rate limit |
+| `github_search_repositories` / `github_get_repository` | Search and inspect repos |
+| `github_list_repository_contents` / `github_read_repository_file` | Browse and read files without cloning |
+| `github_search_code` | Code search, repo-scoped or global |
+| `github_list_branches` / `github_list_commits` | Branch and commit history |
+| `github_list_issues` / `github_get_issue` / `github_list_issue_comments` / `github_search_issues` | Read issues and PR/issue search |
+| `github_list_pull_requests` / `github_get_pull_request` / `github_get_pull_request_diff` / `github_list_pull_request_files` | Read pull requests and diffs |
+| `github_list_workflow_runs` / `github_get_workflow_run` | Actions/CI status |
+| `github_list_notifications` | Unread (or all) notifications |
+| `github_create_issue` / `github_comment_on_issue` / `github_close_issue` | Write to issues — **approval-gated** |
+| `github_create_pull_request` / `github_merge_pull_request` | Open/merge PRs — **approval-gated** |
+| `github_star_repository` | Star a repo — **approval-gated** |
+| `git_clone_repository` / `git_pull_repository` | Clone/pull into an allowed write root using the OAuth token as an ephemeral, never-persisted git credential |
+| `git_push_changes` | Stage, commit, and push — **approval-gated** |
+
+All actions that publish something (issues, comments, PRs, merges, stars, git
+pushes) use the same exact two-turn approval pattern as `run_python_tests`:
+Kara requests approval, shows a one-time phrase, and only proceeds once you
+reply with that exact phrase in your next message. Read tools need no approval.
+`git_clone_repository` / `git_pull_repository` stay inside `KARA_FILE_WRITE_ROOTS`
+like the rest of Kara's file tools.
+
+## Mnemosyne (optional external memory, over MCP)
+
+[Mnemosyne](https://github.com/mnemosyne-oss/mnemosyne) is a separate,
+SQLite-backed, three-tier memory system for AI agents. Kara can talk to it
+as an MCP server, purely as an **additional, optional** memory surface — it
+does not replace or share data with Kara's own core/learnings/session
+memory (`tools/memory_tools.py`).
+
+### Setup
+
+Install it as a real dependency of Kara's own project (from `personal_agent/`),
+not via a bare `pip install` in some other terminal/Python — the gateway only
+sees packages inside its own `.venv`:
+
+```bash
+uv add "mnemosyne-memory[mcp,embeddings]"
+```
+
+Skip the `[all]` extra unless you have a C/C++ build toolchain installed — it
+pulls in `llama-cpp-python`, which compiles from source (CMake + `nmake`/MSVC)
+and will fail on a plain machine. `[mcp,embeddings]` gets the full MCP server
+plus real vector search (via `fastembed` + `sqlite-vec`, prebuilt wheels, no
+compiler needed) — the `[llm]` extra is for a separate local-LLM feature
+Kara's tools don't use.
+
+That's it — `tools/mnemosyne_tools.py` spawns `mnemosyne mcp` (stdio) itself
+the first time a Mnemosyne tool is called; there's no separate process to
+manage. Executable discovery checks, in order: an absolute `MNEMOSYNE_BIN`
+path, the venv this exact interpreter is running from (`sys.prefix`), then a
+`PATH` search. The middle step matters because the gateway is launched by
+directly invoking `.venv/Scripts/python.exe` (Task Scheduler → a `.vbs`
+launcher, or the gateway's own self-restart) — that never puts `.venv/Scripts`
+on `PATH`, so a `PATH`-only lookup works in a dev shell (`uv run ...`) but
+silently fails for the real running gateway even though the package is
+correctly installed. Only set `MNEMOSYNE_BIN` in `.env` if the executable
+genuinely lives outside this venv.
+
+If the gateway was already running when you installed the dependency, restart
+it (`schtasks /Run /TN KaraGateway`, or let it pick up the change automatically
+on its next ~10s source-change poll — though a fresh `.venv` package isn't a
+source-file change, so a manual restart is safer here).
+
+### Tools
+
+| Tool | Capability |
+|---|---|
+| `mnemosyne_status` | Whether Mnemosyne is installed/reachable, and its live MCP tool inventory |
+| `mnemosyne_remember` | Store a memory (optionally tagged) |
+| `mnemosyne_recall` | Search stored memories |
+| `mnemosyne_call_tool` | Call any other Mnemosyne MCP tool by exact name (knowledge-graph, multi-agent, working-note, operational) — Mnemosyne's own docs call its full tool surface version-specific, so this is a generic escape hatch rather than a hardcoded list |
+
+The bridge (`tools/mcp_bridge.py`) is a generic stdio MCP client — one
+background thread keeps a persistent session open to any MCP server
+subprocess and exposes ordinary blocking `list_tools()`/`call_tool()` calls,
+so future MCP servers can be wired in the same way.
 
 ## Local files, documents/OCR, SQLite, Python, Windows, and computer use
 

@@ -9,6 +9,7 @@ STUDY GUIDE
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from telegram import Update
@@ -31,6 +32,10 @@ from tools.scheduler_tools import (
 
 log = logging.getLogger("kara.gateway.telegram")
 TELEGRAM_MAX_MESSAGE = 4096
+# LEARN: Telegram's "typing" indicator auto-expires after ~5s, so a single
+# send_chat_action isn't enough for a multi-step tool loop — it must be resent
+# on an interval shorter than that expiry for as long as Kara is working.
+TYPING_REFRESH_SECONDS = 4
 
 
 def _is_allowed(user_id: int | None) -> bool:
@@ -77,6 +82,35 @@ async def _reply_rich(update: Update, text: str) -> None:
 # LEARN: Handlers below split into a sync helper (blocking work: HTTP, SQLite,
 # LLM calls) and an async wrapper that runs it via asyncio.to_thread. This keeps
 # the event loop free so the bot can keep receiving updates while one is busy.
+
+
+async def _typing_refresh_loop(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    while True:
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        except Exception:
+            # LEARN: A dropped typing ping shouldn't kill the loop or the reply.
+            log.debug("send_chat_action failed; will retry on next tick", exc_info=True)
+        await asyncio.sleep(TYPING_REFRESH_SECONDS)
+
+
+@contextlib.asynccontextmanager
+async def _typing_indicator(context: ContextTypes.DEFAULT_TYPE, chat_id: int | None):
+    """Keep Telegram's "typing..." indicator alive for the whole ``async with`` block.
+
+    Telegram expires the indicator after ~5s, so a background task resends it
+    every TYPING_REFRESH_SECONDS while Kara's tool loop runs, then stops it.
+    """
+    if chat_id is None:
+        yield
+        return
+    task = asyncio.create_task(_typing_refresh_loop(context, chat_id))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 def _start_reply(user_id: int) -> str:
@@ -225,15 +259,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text = update.message.text.strip()
     chat = update.effective_chat
 
-    await context.bot.send_chat_action(
-        chat_id=chat.id, action=ChatAction.TYPING
-    )
     try:
-        # LEARN: to_thread runs blocking sync code (session setup + tool loop) in a
-        # thread pool so the async event loop isn't blocked while Kara thinks.
-        reply, is_rich = await asyncio.to_thread(
-            _chat_reply, user.id, chat.id if chat else None, text
-        )
+        async with _typing_indicator(context, chat.id if chat else None):
+            # LEARN: to_thread runs blocking sync code (session setup + tool loop) in a
+            # thread pool so the async event loop isn't blocked while Kara thinks.
+            reply, is_rich = await asyncio.to_thread(
+                _chat_reply, user.id, chat.id if chat else None, text
+            )
         if is_rich:
             await _reply_rich(update, reply)
         else:
