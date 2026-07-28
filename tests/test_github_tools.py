@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -154,7 +156,72 @@ class GitSubprocessTests(unittest.TestCase):
         creds_patcher.start()
         self.addCleanup(creds_patcher.stop)
 
-    def test_git_clone_repository_passes_token_via_ephemeral_header(self) -> None:
+    def test_git_subprocess_uses_oauth_without_interactive_credential_manager(self) -> None:
+        environment = github_tools._git_environment("tok-secret")
+
+        self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(environment["GCM_INTERACTIVE"], "Never")
+        self.assertEqual(environment["KARA_GIT_OAUTH_TOKEN"], "tok-secret")
+        self.assertEqual(environment["GIT_CONFIG_COUNT"], "2")
+        self.assertEqual(environment["GIT_CONFIG_KEY_0"], "credential.helper")
+        self.assertEqual(environment["GIT_CONFIG_VALUE_0"], "")
+        self.assertEqual(environment["GIT_CONFIG_KEY_1"], "credential.helper")
+        helper = environment["GIT_CONFIG_VALUE_1"]
+        self.assertIn("username=x-access-token", helper)
+        self.assertIn("$KARA_GIT_OAUTH_TOKEN", helper)
+        self.assertNotIn("tok-secret", helper)
+
+        with patch.dict(os.environ, {"KARA_GIT_OAUTH_TOKEN": "inherited-secret"}):
+            local_environment = github_tools._git_environment()
+        self.assertNotIn("KARA_GIT_OAUTH_TOKEN", local_environment)
+
+    def test_git_timeout_terminates_the_process_tree(self) -> None:
+        process = MagicMock(pid=4242)
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="git", timeout=1),
+            ("", ""),
+        ]
+        with patch.object(github_tools.shutil, "which", return_value="git.exe"), patch.object(
+            github_tools.subprocess, "run",
+            side_effect=subprocess.TimeoutExpired(cmd="git", timeout=1),
+        ), patch.object(
+            github_tools.subprocess, "Popen", return_value=process
+        ), patch.object(
+            github_tools, "_assign_windows_git_job", return_value=99, create=True
+        ), patch.object(
+            github_tools, "_close_windows_job", create=True
+        ) as close_job, patch.object(
+            github_tools, "_terminate_git_process_tree", create=True
+        ) as terminate_tree:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                github_tools._run_git(["push"], cwd=None, token="tok-secret")
+
+        terminate_tree.assert_called_once_with(process)
+        close_job.assert_any_call(99)
+
+    def test_git_subprocess_keeps_token_off_command_line_and_redacts_output(self) -> None:
+        process = MagicMock(pid=4242, returncode=1)
+        process.communicate.return_value = (
+            "stdout accidentally contained tok-secret",
+            "stderr accidentally contained tok-secret",
+        )
+        with patch.object(github_tools.shutil, "which", return_value="git.exe"), patch.object(
+            github_tools.subprocess, "Popen", return_value=process
+        ) as popen, patch.object(
+            github_tools, "_assign_windows_git_job", return_value=99
+        ), patch.object(
+            github_tools, "_close_windows_job"
+        ) as close_job:
+            code, out, err = github_tools._run_git(["push"], cwd=None, token="tok-secret")
+
+        self.assertEqual(code, 1)
+        self.assertNotIn("tok-secret", " ".join(popen.call_args.args[0]))
+        self.assertNotIn("tok-secret", out + err)
+        self.assertIn("[REDACTED]", out)
+        self.assertIn("[REDACTED]", err)
+        close_job.assert_called_once_with(99)
+
+    def test_git_clone_repository_passes_ephemeral_oauth_token(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
             dest = root / "clone-target"
@@ -212,6 +279,9 @@ class GitSubprocessTests(unittest.TestCase):
         self.assertTrue(completed["ok"])
         self.assertEqual(len(completed["steps"]), 3)
         self.assertEqual(run_git.call_count, 3)
+        self.assertNotIn("token", run_git.call_args_list[0].kwargs)
+        self.assertNotIn("token", run_git.call_args_list[1].kwargs)
+        self.assertEqual(run_git.call_args_list[2].kwargs["token"], "tok-secret")
 
 
 if __name__ == "__main__":

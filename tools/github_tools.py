@@ -19,6 +19,7 @@ import functools
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 from pathlib import Path
@@ -912,21 +913,174 @@ def github_star_repository(repo: str, approval_token: str = "") -> str:
 # --- Git (clone/pull/push via ephemeral OAuth credential) ----------------------
 
 
-def _run_git(args: list[str], *, cwd: Path | None, token: str) -> tuple[int, str, str]:
+def _git_environment(token: str = "") -> dict[str, str]:
+    """Return a non-interactive Git environment with ephemeral OAuth credentials."""
+    # Git for Windows resolves credentials before sending an HTTP extra header.
+    # In Kara's headless gateway, the global Git Credential Manager can therefore
+    # wait forever for UI. Reset configured helpers, then provide the approved
+    # OAuth token from the child environment through a non-interactive helper.
+    # The token is never written to disk or placed in the process command line.
+    git_env = os.environ.copy()
+    git_env.pop("KARA_GIT_OAUTH_TOKEN", None)
+    git_env.update({
+        "GIT_TERMINAL_PROMPT": "0",
+        "GCM_INTERACTIVE": "Never",
+    })
+    if not token:
+        return git_env
+    git_env.update({
+        "KARA_GIT_OAUTH_TOKEN": token,
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": "credential.helper",
+        "GIT_CONFIG_VALUE_1": (
+            '!f() { printf "%s\\n" "username=x-access-token" '
+            '"password=$KARA_GIT_OAUTH_TOKEN"; }; f'
+        ),
+    })
+    return git_env
+
+
+def _assign_windows_git_job(process: subprocess.Popen[str]) -> int | None:
+    """Bind Git and all descendants to a kill-on-close Windows Job Object."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError(kernel32.GetLastError(), "CreateJobObjectW failed for Git")
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
+    if not kernel32.SetInformationJobObject(
+        job, 9, ctypes.byref(info), ctypes.sizeof(info)
+    ):
+        error = kernel32.GetLastError()
+        kernel32.CloseHandle(job)
+        raise OSError(error, "SetInformationJobObject failed for Git")
+    if not kernel32.AssignProcessToJobObject(job, wintypes.HANDLE(process._handle)):
+        error = kernel32.GetLastError()
+        kernel32.CloseHandle(job)
+        raise OSError(error, "AssignProcessToJobObject failed for Git")
+    return int(job)
+
+
+def _close_windows_job(handle: int | None) -> None:
+    if handle and os.name == "nt":
+        import ctypes
+
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def _terminate_git_process_tree(process: subprocess.Popen[str]) -> None:
+    """Terminate a timed-out Git command and credential/network descendants."""
+    if os.name == "nt":
+        system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        taskkill = system_root / "System32" / "taskkill.exe"
+        if taskkill.is_file():
+            try:
+                subprocess.run(
+                    [str(taskkill), "/PID", str(process.pid), "/T", "/F"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    if process.poll() is None:
+        process.kill()
+
+
+def _run_git(args: list[str], *, cwd: Path | None, token: str = "") -> tuple[int, str, str]:
     git_bin = shutil.which("git")
     if not git_bin:
         raise RuntimeError("git is not installed or not on PATH.")
-    cmd = [git_bin, "-c", f"http.extraheader=AUTHORIZATION: bearer {token}", *args]
-    result = subprocess.run(
-        cmd,
+    windows_flags = (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        if os.name == "nt"
+        else 0
+    )
+    process = subprocess.Popen(
+        [git_bin, *args],
         cwd=cwd,
-        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=GIT_TIMEOUT_SECONDS,
         encoding="utf-8",
         errors="replace",
+        env=_git_environment(token),
+        creationflags=windows_flags,
+        start_new_session=(os.name != "nt"),
     )
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+    job_handle: int | None = None
+    try:
+        job_handle = _assign_windows_git_job(process)
+    except OSError:
+        _terminate_git_process_tree(process)
+        raise
+    try:
+        stdout, stderr = process.communicate(timeout=GIT_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        _close_windows_job(job_handle)
+        job_handle = None
+        _terminate_git_process_tree(process)
+        try:
+            process.communicate(timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        raise
+    finally:
+        _close_windows_job(job_handle)
+    safe_stdout = stdout.replace(token, "[REDACTED]") if token else stdout
+    safe_stderr = stderr.replace(token, "[REDACTED]") if token else stderr
+    return process.returncode, safe_stdout.strip(), safe_stderr.strip()
 
 
 def _require_git_repo(path: Path) -> None:
@@ -1025,22 +1179,22 @@ def git_push_changes(
     steps: list[dict[str, Any]] = []
 
     if create_branch:
-        code, out, git_err = _run_git(["checkout", "-b", branch.strip()], cwd=path, token=token)
+        code, out, git_err = _run_git(["checkout", "-b", branch.strip()], cwd=path)
         steps.append({"step": "checkout -b", "ok": code == 0, "output": git_err or out})
         if code != 0:
             return _json({"ok": False, "steps": steps})
     elif branch.strip():
-        code, out, git_err = _run_git(["checkout", branch.strip()], cwd=path, token=token)
+        code, out, git_err = _run_git(["checkout", branch.strip()], cwd=path)
         steps.append({"step": "checkout", "ok": code == 0, "output": git_err or out})
         if code != 0:
             return _json({"ok": False, "steps": steps})
 
-    code, out, git_err = _run_git(["add", "-A"], cwd=path, token=token)
+    code, out, git_err = _run_git(["add", "-A"], cwd=path)
     steps.append({"step": "add -A", "ok": code == 0, "output": git_err or out})
     if code != 0:
         return _json({"ok": False, "steps": steps})
 
-    code, out, git_err = _run_git(["commit", "-m", message], cwd=path, token=token)
+    code, out, git_err = _run_git(["commit", "-m", message], cwd=path)
     nothing_to_commit = "nothing to commit" in (out + git_err).lower()
     steps.append({"step": "commit", "ok": code == 0 or nothing_to_commit, "output": git_err or out})
     if code != 0 and not nothing_to_commit:
