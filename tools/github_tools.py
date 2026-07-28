@@ -913,6 +913,19 @@ def github_star_repository(repo: str, approval_token: str = "") -> str:
 # --- Git (clone/pull/push via ephemeral OAuth credential) ----------------------
 
 
+_GIT_ENV_ALLOWLIST = (
+    "SYSTEMROOT", "WINDIR", "COMSPEC", "PATH", "PATHEXT",
+    "TEMP", "TMP", "TMPDIR",
+    "USERPROFILE", "HOME", "HOMEDRIVE", "HOMEPATH",
+    "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",
+    "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
+    "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM",
+    "SSL_CERT_FILE", "SSL_CERT_DIR",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+)
+
+
 def _git_environment(token: str = "") -> dict[str, str]:
     """Return a non-interactive Git environment with ephemeral OAuth credentials."""
     # Git for Windows resolves credentials before sending an HTTP extra header.
@@ -920,8 +933,13 @@ def _git_environment(token: str = "") -> dict[str, str]:
     # wait forever for UI. Reset configured helpers, then provide the approved
     # OAuth token from the child environment through a non-interactive helper.
     # The token is never written to disk or placed in the process command line.
-    git_env = os.environ.copy()
-    git_env.pop("KARA_GIT_OAUTH_TOKEN", None)
+    # Do not expose Kara's unrelated provider/API credentials to repository hooks,
+    # and do not inherit caller-controlled GIT_CONFIG_* / GIT_ASKPASS settings.
+    git_env = {
+        key: value
+        for key in _GIT_ENV_ALLOWLIST
+        if (value := os.environ.get(key)) is not None
+    }
     git_env.update({
         "GIT_TERMINAL_PROMPT": "0",
         "GCM_INTERACTIVE": "Never",

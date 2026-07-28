@@ -173,7 +173,22 @@ class GitSubprocessTests(unittest.TestCase):
 
         with patch.dict(os.environ, {"KARA_GIT_OAUTH_TOKEN": "inherited-secret"}):
             local_environment = github_tools._git_environment()
-        self.assertNotIn("KARA_GIT_OAUTH_TOKEN", local_environment)
+        self.assertFalse("KARA_GIT_OAUTH_TOKEN" in local_environment)
+
+        poisoned = {
+            "GIT_CONFIG_PARAMETERS": "'credential.helper=evil-helper'",
+            "GIT_CONFIG_COUNT": "9",
+            "GIT_CONFIG_KEY_8": "credential.helper",
+            "GIT_CONFIG_VALUE_8": "evil-helper",
+            "UNRELATED_PROVIDER_SECRET": "must-not-reach-git",
+        }
+        with patch.dict(os.environ, poisoned):
+            scrubbed_environment = github_tools._git_environment("tok-secret")
+        self.assertFalse("GIT_CONFIG_PARAMETERS" in scrubbed_environment)
+        self.assertFalse("GIT_CONFIG_KEY_8" in scrubbed_environment)
+        self.assertFalse("GIT_CONFIG_VALUE_8" in scrubbed_environment)
+        self.assertFalse("UNRELATED_PROVIDER_SECRET" in scrubbed_environment)
+        self.assertEqual(scrubbed_environment["GIT_CONFIG_COUNT"], "2")
 
     def test_git_timeout_terminates_the_process_tree(self) -> None:
         process = MagicMock(pid=4242)
