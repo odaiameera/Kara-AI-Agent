@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
-from typing import Any, Callable
+from typing import Any, Callable, TextIO
 
 import httpx
 
@@ -149,6 +150,53 @@ def runtime_credentials(*, refresh_if_expiring: bool = True) -> dict[str, str]:
     }
 
 
+def git_credential_helper(
+    operation: str,
+    *,
+    input_stream: TextIO | None = None,
+    output_stream: TextIO | None = None,
+    error_stream: TextIO | None = None,
+) -> int:
+    """Serve Git credentials only for HTTPS requests to github.com.
+
+    Git launches this trusted helper as a separate process.  The token is read
+    from Kara's auth store here rather than inherited by Git, so repository
+    hooks, filters, aliases, and remote helpers never receive it in their
+    environment.
+    """
+    if operation in {"store", "erase"}:
+        return 0
+    if operation != "get":
+        return 1
+
+    source = input_stream if input_stream is not None else sys.stdin
+    destination = output_stream if output_stream is not None else sys.stdout
+    errors = error_stream if error_stream is not None else sys.stderr
+    request: dict[str, str] = {}
+    for raw_line in source:
+        line = raw_line.rstrip("\r\n")
+        if not line:
+            break
+        key, separator, value = line.partition("=")
+        if separator:
+            request[key] = value
+
+    if request.get("protocol", "").lower() != "https" or request.get("host", "").lower() != "github.com":
+        return 0
+    try:
+        credentials = runtime_credentials(refresh_if_expiring=False)
+    except auth_store.AuthStoreError as exc:
+        print(f"GitHub credentials unavailable: {exc}", file=errors)
+        return 1
+    token = credentials.get("access_token", "").strip()
+    if not token:
+        print("GitHub credentials unavailable: access token is empty.", file=errors)
+        return 1
+    print("username=x-access-token", file=destination)
+    print(f"password={token}", file=destination)
+    return 0
+
+
 def has_credentials() -> bool:
     # LEARN: catch the shared base — a corrupt auth.json raises AuthStoreError
     # from auth_store, which is NOT a GitHubAuthError.
@@ -246,9 +294,10 @@ def status() -> None:
     print(f"Refresh token present: {has_refresh} (only set if this OAuth App has expiring tokens enabled)")
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Manage Kara's GitHub OAuth login")
-    parser.add_argument("command", choices=["login", "status", "refresh"])
+    parser.add_argument("command", choices=["login", "status", "refresh", "credential"])
+    parser.add_argument("operation", nargs="?")
     args = parser.parse_args()
     if args.command == "login":
         login()
@@ -257,7 +306,10 @@ def main() -> None:
     elif args.command == "refresh":
         refresh_tokens()
         print("GitHub token refreshed.")
+    elif args.command == "credential":
+        return git_credential_helper(args.operation or "")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

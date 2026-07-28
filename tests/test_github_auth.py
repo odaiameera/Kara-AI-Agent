@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import tempfile
 import time
 import unittest
@@ -52,6 +53,61 @@ class TokenStoreTests(unittest.TestCase):
                 github_auth.save_tokens({"access_token": "tok1"})
                 with self.assertRaises(github_auth.GitHubAuthError):
                     github_auth.refresh_tokens()
+
+
+class GitCredentialHelperTests(unittest.TestCase):
+    def test_get_returns_token_only_for_https_github(self) -> None:
+        output = io.StringIO()
+        with patch.object(
+            github_auth,
+            "runtime_credentials",
+            return_value={"access_token": "tok1", "scope": "repo"},
+        ) as credentials:
+            code = github_auth.git_credential_helper(
+                "get",
+                input_stream=io.StringIO("protocol=https\nhost=github.com\n\n"),
+                output_stream=output,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            output.getvalue(),
+            "username=x-access-token\npassword=tok1\n",
+        )
+        credentials.assert_called_once_with(refresh_if_expiring=False)
+
+    def test_get_refuses_foreign_hosts_without_reading_token_store(self) -> None:
+        output = io.StringIO()
+        with patch.object(github_auth, "runtime_credentials") as credentials:
+            code = github_auth.git_credential_helper(
+                "get",
+                input_stream=io.StringIO("protocol=https\nhost=example.com\n\n"),
+                output_stream=output,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output.getvalue(), "")
+        credentials.assert_not_called()
+
+    def test_get_reports_missing_credentials_without_traceback(self) -> None:
+        output = io.StringIO()
+        errors = io.StringIO()
+        with patch.object(
+            github_auth,
+            "runtime_credentials",
+            side_effect=github_auth.GitHubAuthError("login required"),
+        ):
+            code = github_auth.git_credential_helper(
+                "get",
+                input_stream=io.StringIO("protocol=https\nhost=github.com\n\n"),
+                output_stream=output,
+                error_stream=errors,
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("credentials unavailable", errors.getvalue().lower())
+        self.assertNotIn("traceback", errors.getvalue().lower())
 
 
 class ExpiryTests(unittest.TestCase):

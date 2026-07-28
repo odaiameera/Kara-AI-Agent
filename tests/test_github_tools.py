@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -157,19 +158,22 @@ class GitSubprocessTests(unittest.TestCase):
         self.addCleanup(creds_patcher.stop)
 
     def test_git_subprocess_uses_oauth_without_interactive_credential_manager(self) -> None:
-        environment = github_tools._git_environment("tok-secret")
+        environment = github_tools._git_environment()
+        command = github_tools._git_command("git.exe", ["push"], with_oauth=True)
 
         self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
         self.assertEqual(environment["GCM_INTERACTIVE"], "Never")
-        self.assertEqual(environment["KARA_GIT_OAUTH_TOKEN"], "tok-secret")
-        self.assertEqual(environment["GIT_CONFIG_COUNT"], "2")
-        self.assertEqual(environment["GIT_CONFIG_KEY_0"], "credential.helper")
-        self.assertEqual(environment["GIT_CONFIG_VALUE_0"], "")
-        self.assertEqual(environment["GIT_CONFIG_KEY_1"], "credential.helper")
-        helper = environment["GIT_CONFIG_VALUE_1"]
-        self.assertIn("username=x-access-token", helper)
-        self.assertIn("$KARA_GIT_OAUTH_TOKEN", helper)
+        self.assertFalse("KARA_GIT_OAUTH_TOKEN" in environment)
+        self.assertFalse("GIT_CONFIG_COUNT" in environment)
+        self.assertEqual(command[1:4], ["-c", "credential.helper=", "-c"])
+        helper_config = command[4]
+        self.assertTrue(helper_config.startswith("credential.helper=!"))
+        helper = helper_config.removeprefix("credential.helper=")
+        self.assertIn("github_auth.py", helper)
+        self.assertIn("credential", helper)
+        self.assertNotIn("KARA_GIT_OAUTH_TOKEN", helper)
         self.assertNotIn("tok-secret", helper)
+        self.assertEqual(command[-1], "push")
 
         with patch.dict(os.environ, {"KARA_GIT_OAUTH_TOKEN": "inherited-secret"}):
             local_environment = github_tools._git_environment()
@@ -183,12 +187,12 @@ class GitSubprocessTests(unittest.TestCase):
             "UNRELATED_PROVIDER_SECRET": "must-not-reach-git",
         }
         with patch.dict(os.environ, poisoned):
-            scrubbed_environment = github_tools._git_environment("tok-secret")
+            scrubbed_environment = github_tools._git_environment()
         self.assertFalse("GIT_CONFIG_PARAMETERS" in scrubbed_environment)
         self.assertFalse("GIT_CONFIG_KEY_8" in scrubbed_environment)
         self.assertFalse("GIT_CONFIG_VALUE_8" in scrubbed_environment)
         self.assertFalse("UNRELATED_PROVIDER_SECRET" in scrubbed_environment)
-        self.assertEqual(scrubbed_environment["GIT_CONFIG_COUNT"], "2")
+        self.assertFalse("GIT_CONFIG_COUNT" in scrubbed_environment)
 
     def test_git_timeout_terminates_the_process_tree(self) -> None:
         process = MagicMock(pid=4242)
@@ -213,6 +217,32 @@ class GitSubprocessTests(unittest.TestCase):
 
         terminate_tree.assert_called_once_with(process)
         close_job.assert_any_call(99)
+
+    def test_git_oauth_helper_refuses_foreign_hosts(self) -> None:
+        git_bin = shutil.which("git")
+        if not git_bin:
+            self.skipTest("git is not installed")
+
+        environment = github_tools._git_environment()
+        command = github_tools._git_command(
+            git_bin,
+            ["credential", "fill"],
+            with_oauth=True,
+        )
+        foreign = subprocess.run(
+            command,
+            input="protocol=https\nhost=example.com\n\n",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertNotEqual(foreign.returncode, 0)
+        self.assertNotIn("password=", foreign.stdout + foreign.stderr)
 
     def test_git_subprocess_keeps_token_off_command_line_and_redacts_output(self) -> None:
         process = MagicMock(pid=4242, returncode=1)
@@ -263,6 +293,34 @@ class GitSubprocessTests(unittest.TestCase):
         self.assertIn("Error", result)
         self.assertIn("not empty", result)
 
+    def test_authenticated_git_remote_must_be_canonical_https_github(self) -> None:
+        root = Path("C:/repo")
+        invalid_urls = [
+            "https://example.com/owner/repo.git",
+            "https://github.com.evil.example/owner/repo.git",
+            "https://user@github.com/owner/repo.git",
+            "https://github.com/owner/repo.git?mirror=1",
+            "git@github.com:owner/repo.git",
+        ]
+        for url in invalid_urls:
+            with self.subTest(url=url), patch.object(
+                github_tools,
+                "_run_git",
+                return_value=(0, url, ""),
+            ):
+                with self.assertRaises(ValueError):
+                    github_tools._require_github_origin(root, push=True)
+
+        with patch.object(
+            github_tools,
+            "_run_git",
+            return_value=(0, "https://github.com/owner/repo.git", ""),
+        ):
+            self.assertEqual(
+                github_tools._require_github_origin(root, push=False),
+                "https://github.com/owner/repo.git",
+            )
+
     def test_git_push_changes_requires_exact_later_user_approval(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
@@ -281,6 +339,7 @@ class GitSubprocessTests(unittest.TestCase):
 
                 computer_tools.set_computer_request_context("gh-session", f"approve {token}")
                 run_git.side_effect = [
+                    (0, "https://github.com/odaiameera/Kara-local.git", ""),  # validate origin
                     (0, "", ""),  # add -A
                     (0, "[main abc1234] fix bug", ""),  # commit
                     (0, "branch 'main' set up to track 'origin/main'.", ""),  # push
@@ -293,10 +352,11 @@ class GitSubprocessTests(unittest.TestCase):
         self.assertEqual(same_turn["error"]["code"], "approval_not_confirmed")
         self.assertTrue(completed["ok"])
         self.assertEqual(len(completed["steps"]), 3)
-        self.assertEqual(run_git.call_count, 3)
+        self.assertEqual(run_git.call_count, 4)
         self.assertNotIn("token", run_git.call_args_list[0].kwargs)
         self.assertNotIn("token", run_git.call_args_list[1].kwargs)
-        self.assertEqual(run_git.call_args_list[2].kwargs["token"], "tok-secret")
+        self.assertNotIn("token", run_git.call_args_list[2].kwargs)
+        self.assertEqual(run_git.call_args_list[3].kwargs["token"], "tok-secret")
 
 
 if __name__ == "__main__":

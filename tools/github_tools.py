@@ -19,11 +19,14 @@ import functools
 import json
 import os
 import re
+import shlex
 import signal
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -926,15 +929,17 @@ _GIT_ENV_ALLOWLIST = (
 )
 
 
-def _git_environment(token: str = "") -> dict[str, str]:
-    """Return a non-interactive Git environment with ephemeral OAuth credentials."""
-    # Git for Windows resolves credentials before sending an HTTP extra header.
-    # In Kara's headless gateway, the global Git Credential Manager can therefore
-    # wait forever for UI. Reset configured helpers, then provide the approved
-    # OAuth token from the child environment through a non-interactive helper.
-    # The token is never written to disk or placed in the process command line.
-    # Do not expose Kara's unrelated provider/API credentials to repository hooks,
-    # and do not inherit caller-controlled GIT_CONFIG_* / GIT_ASKPASS settings.
+def _git_credential_helper_command() -> str:
+    python_bin = str(Path(sys.executable).resolve())
+    auth_script = str(Path(github_auth.__file__).resolve())
+    return f"!{shlex.quote(python_bin)} -B {shlex.quote(auth_script)} credential"
+
+
+def _git_environment() -> dict[str, str]:
+    """Return a minimal, non-interactive environment for Git and its children."""
+    # Never expose Kara's provider/API credentials to repository hooks, filters,
+    # aliases, or remote helpers, and do not inherit caller-controlled Git config
+    # or askpass settings. Authentication is attached separately by _git_command.
     git_env = {
         key: value
         for key in _GIT_ENV_ALLOWLIST
@@ -944,20 +949,21 @@ def _git_environment(token: str = "") -> dict[str, str]:
         "GIT_TERMINAL_PROMPT": "0",
         "GCM_INTERACTIVE": "Never",
     })
-    if not token:
-        return git_env
-    git_env.update({
-        "KARA_GIT_OAUTH_TOKEN": token,
-        "GIT_CONFIG_COUNT": "2",
-        "GIT_CONFIG_KEY_0": "credential.helper",
-        "GIT_CONFIG_VALUE_0": "",
-        "GIT_CONFIG_KEY_1": "credential.helper",
-        "GIT_CONFIG_VALUE_1": (
-            '!f() { printf "%s\\n" "username=x-access-token" '
-            '"password=$KARA_GIT_OAUTH_TOKEN"; }; f'
-        ),
-    })
     return git_env
+
+
+def _git_command(git_bin: str, args: list[str], *, with_oauth: bool) -> list[str]:
+    command = [git_bin]
+    if with_oauth:
+        # Command-scoped config resets global GCM. Git may propagate this config
+        # to child processes, so it deliberately contains only trusted executable
+        # paths—the OAuth token is never present in argv or config.
+        command.extend([
+            "-c", "credential.helper=",
+            "-c", f"credential.helper={_git_credential_helper_command()}",
+        ])
+    command.extend(args)
+    return command
 
 
 def _assign_windows_git_job(process: subprocess.Popen[str]) -> int | None:
@@ -1065,7 +1071,7 @@ def _run_git(args: list[str], *, cwd: Path | None, token: str = "") -> tuple[int
         else 0
     )
     process = subprocess.Popen(
-        [git_bin, *args],
+        _git_command(git_bin, args, with_oauth=bool(token)),
         cwd=cwd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -1073,7 +1079,7 @@ def _run_git(args: list[str], *, cwd: Path | None, token: str = "") -> tuple[int
         text=True,
         encoding="utf-8",
         errors="replace",
-        env=_git_environment(token),
+        env=_git_environment(),
         creationflags=windows_flags,
         start_new_session=(os.name != "nt"),
     )
@@ -1104,6 +1110,41 @@ def _run_git(args: list[str], *, cwd: Path | None, token: str = "") -> tuple[int
 def _require_git_repo(path: Path) -> None:
     if not (path / ".git").exists():
         raise ValueError(f"{path} is not a git repository (no .git directory).")
+
+
+def _require_github_origin(path: Path, *, push: bool) -> str:
+    args = ["remote", "get-url", "--all"]
+    if push:
+        args.append("--push")
+    args.append("origin")
+    code, out, git_err = _run_git(args, cwd=path)
+    if code != 0:
+        raise RuntimeError(f"Could not resolve Git remote 'origin': {git_err or out or 'unknown git error'}")
+    urls = [line.strip() for line in out.splitlines() if line.strip()]
+    if len(urls) != 1:
+        raise ValueError("Git remote 'origin' must resolve to one canonical HTTPS GitHub URL.")
+    url = urls[0]
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Git remote 'origin' is not a valid HTTPS GitHub URL.") from exc
+    segments = parsed.path.removeprefix("/").split("/")
+    repo_name = segments[1].removesuffix(".git") if len(segments) == 2 else ""
+    canonical_slug = _repo_slug(f"{segments[0]}/{repo_name}") if repo_name else ""
+    if (
+        parsed.scheme.lower() != "https"
+        or (parsed.hostname or "").lower() != "github.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.query
+        or parsed.fragment
+        or not canonical_slug
+        or parsed.path not in {f"/{canonical_slug}", f"/{canonical_slug}.git"}
+    ):
+        raise ValueError("Git remote 'origin' must be a canonical URL like https://github.com/owner/repo.git.")
+    return url
 
 
 @_github_tool("cloning repository", expected=_EXPECTED_GIT)
@@ -1148,6 +1189,7 @@ def git_pull_repository(repo_path: str) -> str:
     """
     path = _resolve_path(repo_path, config.FILE_WRITE_ROOTS, purpose="write")
     _require_git_repo(path)
+    _require_github_origin(path, push=False)
     creds = github_auth.runtime_credentials()
     code, out, git_err = _run_git(["pull", "--ff-only"], cwd=path, token=creds["access_token"])
     if code != 0:
@@ -1192,6 +1234,7 @@ def git_push_changes(
     if approval:
         return approval
 
+    _require_github_origin(path, push=True)
     creds = github_auth.runtime_credentials()
     token = creds["access_token"]
     steps: list[dict[str, Any]] = []
