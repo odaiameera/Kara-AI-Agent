@@ -19,12 +19,12 @@ def _fake_response(payload, headers: dict | None = None, text: str = ""):
 
 
 class RepoValidationTests(unittest.TestCase):
-    def test_split_repo_accepts_owner_slash_name(self) -> None:
-        self.assertEqual(github_tools._split_repo("odaiameera/Kara-local"), ("odaiameera", "Kara-local"))
+    def test_repo_slug_accepts_and_normalizes_owner_slash_name(self) -> None:
+        self.assertEqual(github_tools._repo_slug("  odaiameera/Kara-local "), "odaiameera/Kara-local")
 
-    def test_split_repo_rejects_missing_slash(self) -> None:
+    def test_repo_slug_rejects_missing_slash(self) -> None:
         with self.assertRaises(ValueError):
-            github_tools._split_repo("not-a-repo")
+            github_tools._repo_slug("not-a-repo")
 
     def test_not_ready_message_when_disconnected(self) -> None:
         with patch.object(github_tools.github_auth, "has_credentials", return_value=False):

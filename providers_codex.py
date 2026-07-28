@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 
+import auth_store
 import codex_auth
 from provider_base import ProviderError
 from providers import Provider
@@ -49,9 +50,11 @@ class OpenAICodexProvider:
         return codex_auth.has_credentials()
 
     def _creds(self) -> dict[str, str]:
+        # LEARN: AuthStoreError is the shared base of CodexAuthError, so this
+        # also converts a corrupt brain/auth.json into a clean ProviderError.
         try:
             return codex_auth.runtime_credentials()
-        except codex_auth.CodexAuthError as exc:
+        except auth_store.AuthStoreError as exc:
             raise ProviderError(str(exc)) from exc
 
     @staticmethod

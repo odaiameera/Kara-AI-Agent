@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import config
 import github_auth
 
 
@@ -13,7 +14,7 @@ class TokenStoreTests(unittest.TestCase):
     def test_save_and_read_tokens_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            with patch.object(github_auth.config, "BRAIN_DIR", root):
+            with patch.object(config, "BRAIN_DIR", root):
                 github_auth.save_tokens({"access_token": "tok1", "scope": "repo workflow"})
                 state = github_auth.read_tokens()
 
@@ -24,14 +25,14 @@ class TokenStoreTests(unittest.TestCase):
     def test_save_tokens_without_access_token_raises(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            with patch.object(github_auth.config, "BRAIN_DIR", root):
+            with patch.object(config, "BRAIN_DIR", root):
                 with self.assertRaises(github_auth.GitHubAuthError):
                     github_auth.save_tokens({"scope": "repo"})
 
     def test_read_tokens_missing_raises_clear_login_error(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            with patch.object(github_auth.config, "BRAIN_DIR", root):
+            with patch.object(config, "BRAIN_DIR", root):
                 with self.assertRaises(github_auth.GitHubAuthError) as ctx:
                     github_auth.read_tokens()
         self.assertIn("login", str(ctx.exception).lower())
@@ -39,7 +40,7 @@ class TokenStoreTests(unittest.TestCase):
     def test_has_credentials_reflects_store_state(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            with patch.object(github_auth.config, "BRAIN_DIR", root):
+            with patch.object(config, "BRAIN_DIR", root):
                 self.assertFalse(github_auth.has_credentials())
                 github_auth.save_tokens({"access_token": "tok1"})
                 self.assertTrue(github_auth.has_credentials())
@@ -47,7 +48,7 @@ class TokenStoreTests(unittest.TestCase):
     def test_refresh_tokens_without_refresh_token_raises(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            with patch.object(github_auth.config, "BRAIN_DIR", root):
+            with patch.object(config, "BRAIN_DIR", root):
                 github_auth.save_tokens({"access_token": "tok1"})
                 with self.assertRaises(github_auth.GitHubAuthError):
                     github_auth.refresh_tokens()

@@ -141,7 +141,10 @@ async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await _reply(update, "Unauthorized.")
         return
     # LEARN: format_models_list makes HTTP calls to every provider — never on the loop.
-    await _reply(update, await asyncio.to_thread(models.format_models_list))
+    chat = update.effective_chat
+    async with _typing_indicator(context, chat.id if chat else None):
+        reply = await asyncio.to_thread(models.format_models_list)
+    await _reply(update, reply)
 
 
 async def providers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -182,7 +185,10 @@ async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _reply(update, "Unauthorized.")
         return
     # LEARN: new_session runs an LLM summary of the old session — can take seconds.
-    await _reply(update, await asyncio.to_thread(_new_session_reply, user.id))
+    chat = update.effective_chat
+    async with _typing_indicator(context, chat.id if chat else None):
+        reply = await asyncio.to_thread(_new_session_reply, user.id)
+    await _reply(update, reply)
 
 
 def _restart_reply(user_id: int, chat_id: int | None) -> str:

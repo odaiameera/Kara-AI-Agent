@@ -13,12 +13,12 @@ import base64
 import json
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 
 import httpx
 
-import config
+import auth_store
+from auth_store import auth_file  # re-exported: callers use codex_auth.auth_file()
 
 CODEX_PROVIDER_ID = "openai-codex"
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -30,43 +30,10 @@ CODEX_VERIFY_URL = f"{CODEX_ISSUER}/codex/device"
 CODEX_REDIRECT_URI = f"{CODEX_ISSUER}/deviceauth/callback"
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 REFRESH_SKEW_SECONDS = 120
-AUTH_FILE_NAME = "auth.json"
 
 
-class CodexAuthError(RuntimeError):
+class CodexAuthError(auth_store.AuthStoreError):
     """Raised when OpenAI Codex OAuth state is missing or invalid."""
-
-
-def auth_file() -> Path:
-    """Return Kara's private auth store path under the gitignored brain directory."""
-    return config.BRAIN_DIR / AUTH_FILE_NAME
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _load_store() -> dict[str, Any]:
-    path = auth_file()
-    if not path.exists():
-        return {"version": 1, "providers": {}}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise CodexAuthError(f"Could not read {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise CodexAuthError(f"Invalid auth store shape in {path}.")
-    data.setdefault("version", 1)
-    data.setdefault("providers", {})
-    return data
-
-
-def _save_store(data: dict[str, Any]) -> None:
-    config.ensure_brain()
-    path = auth_file()
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(path)
 
 
 def save_tokens(tokens: dict[str, str], *, base_url: str = DEFAULT_CODEX_BASE_URL) -> None:
@@ -80,25 +47,24 @@ def save_tokens(tokens: dict[str, str], *, base_url: str = DEFAULT_CODEX_BASE_UR
         raise CodexAuthError("OpenAI Codex token response did not include access_token.")
     if not refresh_token:
         raise CodexAuthError("OpenAI Codex token response did not include refresh_token.")
-    store = _load_store()
-    providers = store.setdefault("providers", {})
-    providers[CODEX_PROVIDER_ID] = {
-        "auth_mode": "chatgpt",
-        "base_url": base_url.rstrip("/"),
-        "last_refresh": _now_iso(),
-        "tokens": {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+    auth_store.write_provider(
+        CODEX_PROVIDER_ID,
+        {
+            "auth_mode": "chatgpt",
+            "base_url": base_url.rstrip("/"),
+            "last_refresh": auth_store.now_iso(),
+            "tokens": {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+            },
         },
-    }
-    _save_store(store)
+    )
 
 
 def read_tokens() -> dict[str, Any]:
     """Read stored OpenAI Codex tokens or raise a clear re-login error."""
-    store = _load_store()
-    state = store.get("providers", {}).get(CODEX_PROVIDER_ID)
-    if not isinstance(state, dict):
+    state = auth_store.read_provider(CODEX_PROVIDER_ID)
+    if state is None:
         raise CodexAuthError(
             "No OpenAI Codex credentials stored. Run `uv run python codex_auth.py login`."
         )
@@ -180,10 +146,12 @@ def runtime_credentials(*, refresh_if_expiring: bool = True) -> dict[str, str]:
 
 
 def has_credentials() -> bool:
+    # LEARN: catch the shared base — a corrupt auth.json raises AuthStoreError
+    # from auth_store, which is NOT a CodexAuthError.
     try:
         read_tokens()
         return True
-    except CodexAuthError:
+    except auth_store.AuthStoreError:
         return False
 
 
@@ -262,7 +230,7 @@ def device_login(*, print_fn: Callable[[str], None] = print) -> dict[str, Any]:
                 "refresh_token": str(tokens.get("refresh_token", "") or "").strip(),
             },
             "base_url": DEFAULT_CODEX_BASE_URL,
-            "last_refresh": _now_iso(),
+            "last_refresh": auth_store.now_iso(),
             "auth_mode": "chatgpt",
         }
 
@@ -279,7 +247,7 @@ def login() -> None:
 def status() -> None:
     try:
         state = read_tokens()
-    except CodexAuthError as exc:
+    except auth_store.AuthStoreError as exc:
         print(str(exc))
         return
     token = str(state["tokens"].get("access_token", "") or "")

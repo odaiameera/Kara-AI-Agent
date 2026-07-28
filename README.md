@@ -1,469 +1,234 @@
 # Kara — Local Personal AI Agent
 
-Kara is a local personal assistant powered by **Ollama** with a self-contained
-local "brain". Talk to her via **CLI** or **Telegram**.
+Kara is a local-first personal AI agent for CLI and Telegram. She combines configurable chat providers with persistent memory, local PC/file tools, scheduling, email, GitHub, and safety-gated desktop automation.
 
-## The brain
+> **Privacy and safety:** Kara’s runtime state, credentials, provider tokens, local memory, and `.env` are intentionally machine-local and gitignored. Read-only inspection is the default; publishing, test execution, and desktop input require explicit approval.
 
-Everything Kara knows lives in `personal_agent/brain/` (gitignored, all markdown
-except the derived vector index):
+## What Kara can do
 
+- Chat through configurable providers, including Ollama and OpenAI Codex OAuth.
+- Run continuously through a Telegram gateway with SQLite-backed conversation history.
+- Maintain a local brain: always-in-context core memory, durable learnings, session logs, and hybrid semantic/keyword recall.
+- Use optional Mnemosyne MCP memory as an additional structured memory surface.
+- Search and fetch the web using SearXNG with Brave/DuckDuckGo fallbacks.
+- Read, search, and explicitly write local files inside configured filesystem roots.
+- Create/read/edit Word, Excel, and PowerPoint files without opening Microsoft Office.
+- Extract text from PDFs and images locally using PyMuPDF and Windows OCR.
+- Inspect SQLite databases and Python source safely; run a bounded unittest suite only after approval.
+- Read email through Himalaya; sending is separately disabled by default.
+- Inspect Windows system/process/service/task/disk state without modifying it.
+- Inspect or control desktop apps through `cua-driver`, with exact two-turn approval for input.
+- Create durable reminders and scheduled autonomous read-only jobs.
+- Read GitHub repositories, commits, issues, PRs, Actions, and notifications; publishing actions require approval.
+
+## Architecture
+
+```text
+CLI / Telegram
+     │
+     ▼
+KaraSession ── provider chat + tool loop ── tool registry
+     │                                      │
+     ├── SQLite conversation state           ├── local files/documents/OCR
+     ├── local brain + vector index          ├── web/email/GitHub/MCP
+     ├── scheduler                           └── Windows/computer inspection
+     └── optional Mnemosyne MCP
 ```
+
+`kara.py` owns the main model → tool → model loop. Tool schemas are generated from Python function signatures and docstrings. Telegram handlers run blocking provider, SQLite, and tool work in worker threads so the event loop remains responsive.
+
+## Local brain
+
+Everything private and persistent lives in `brain/` and is gitignored:
+
+```text
 brain/
-  core/          Always-in-context working memory (persona / human / active_task)
-  learnings/     Durable facts & insights (semantic memory)
-  sessions/      Episodic logs of past conversations
-  index/         Derived vector store (embeddings cache)
-  settings.json  Active Ollama model (persists across restarts)
-  state.db       Conversation history (SQLite, survives gateway restarts)
-  scheduler.db   Durable reminders and autonomous recurring jobs
-  logs/          gateway.log
+  core/          Always-in-context persona, user, and active-task blocks
+  learnings/     Durable facts and decisions (Markdown)
+  sessions/      Episodic conversation logs (Markdown)
+  index/         Derived vector index for hybrid search
+  settings.json  Active provider/model settings
+  providers.json Provider definitions without API keys
+  state.db       SQLite conversation history
+  scheduler.db   Durable reminders and scheduled jobs
+  auth.json      OAuth tokens (GitHub/Codex), when configured
+  logs/          Gateway logs
 ```
 
-## Ollama provider
+Kara’s built-in semantic search uses cached hybrid ranking: embeddings plus keyword matching. A cheap stat fingerprint avoids re-reading/re-embedding memory files when they have not changed. If embeddings are unavailable, search falls back to keywords.
 
-Kara uses Ollama for **both chat and embeddings** today. The provider layer is a
-small ``ChatProvider`` abstraction (see ``provider_base.py``) so additional
-backends (Gemini, OpenAI API, OpenAI Codex OAuth) can be added without
-rewriting the agent core.
+## Requirements
 
-| Mode | Host | API key |
-|---|---|---|
-| **Cloud** (recommended with your key) | `https://ollama.com` | `OLLAMA_API_KEY` from [ollama.com/settings/keys](https://ollama.com/settings/keys) |
-| **Local** | `http://localhost:11434` | not required |
-
-When `OLLAMA_API_KEY` is set, Kara defaults to the cloud host. Leave it blank to
-use a locally running Ollama daemon instead.
-
-Provider config lives in ``brain/providers.json`` (auto-seeded from ``.env``).
-Runtime adapters are built via ``providers.to_chat_provider()``; Ollama is
-implemented in ``providers_ollama.py``.
+- Python **3.14+**
+- [uv](https://docs.astral.sh/uv/)
+- An Ollama setup or another configured chat provider
+- Windows 10/11 for Windows inventory, Windows OCR, and `cua-driver` desktop support
 
 ## Setup
 
-1. Install deps:
-
-```bash
+```powershell
 cd personal_agent
 uv sync
+Copy-Item .env.example .env
 ```
 
-2. Configure `.env`:
+Add at least one provider to `.env`, for example:
 
-```bash
-cp .env.example .env
-```
-
-Add your Ollama API key:
-
-```
-OLLAMA_API_KEY=your_key_here
+```env
+OLLAMA_API_KEY=your_ollama_api_key
 OLLAMA_MODEL=gpt-oss:120b
 ```
 
-3. Run (CLI):
+Run the CLI:
 
-```bash
+```powershell
 uv run agent.py
 ```
 
-For **local** Ollama instead, install [Ollama](https://ollama.com/download) and
-pull models:
+For local Ollama, leave `OLLAMA_API_KEY` blank and run an Ollama server locally (default `http://localhost:11434`). Install any required local chat and embedding models separately.
 
-```bash
-ollama pull llama3.3
-ollama pull nomic-embed-text
-```
+## Providers and models
 
-Then leave `OLLAMA_API_KEY` blank in `.env`.
+Kara uses a small provider abstraction, so provider-specific authentication does not leak into the agent loop. Ollama supports cloud or local operation; OpenAI Codex OAuth is also supported when configured.
 
-## Multiple providers / API keys
+Telegram/CLI commands include:
 
-Kara supports **multiple Ollama API keys**. Each key becomes a provider, and
-``/models`` queries all of them and lists available models per provider.
+- `/providers` — list configured providers
+- `/provider <id> [model]` — switch provider, optionally with a model
+- `/models` — list models across providers
+- `/model [provider/model-or-name]` — inspect or switch model
+- `/new` — start a fresh chat while preserving long-term memory
+- `/restart` — request a graceful gateway restart
 
-Add keys to ``.env``:
+Switching provider or model resets only the current chat context, not the brain.
 
-```env
-OLLAMA_API_KEY=your_primary_key
-OLLAMA_API_KEY_WORK=your_work_key
-OLLAMA_API_KEY_PERSONAL=your_personal_key
-```
+## 24/7 Telegram gateway
 
-Provider definitions are stored in ``brain/providers.json`` (auto-created from
-``.env``). API keys always stay in ``.env`` — never in the JSON file.
-
-Commands:
-
-- ``/providers`` — list provider IDs and native switch commands
-- ``/provider <provider-id>`` — switch provider using its default model
-- ``/provider <provider-id> <model>`` — switch provider and model together
-- ``/models`` — all providers + models from each (live from API)
-- ``/model`` — models for the active provider only
-- ``/model <name>`` — switch model on active provider
-- ``/model <provider-id>/<model>`` — switch provider and model in one command
-
-## Switching providers and models
-
-- `/providers` — list provider IDs and switch commands
-- `/provider ollama-cloud` — switch to Ollama Cloud using its default model
-- `/provider openai-codex` — switch to OpenAI Codex using its default model
-- `/provider ollama-cloud gpt-oss:20b` — switch provider and model together
-- `/models` — list every provider and its models
-- `/model` — list models for the active provider
-- `/model gpt-oss:20b` — switch model on the active provider
-- `/model openai-codex/gpt-5.5` — switch provider and model in one command
-
-Switching resets the in-chat context for that session; brain memory is unchanged.
-
-## Gateway (24/7 Telegram, Hermes-style)
-
-One long-lived process runs Telegram + the agent core. Conversations persist in
-**SQLite** (`brain/state.db`) across restarts.
-
-### Setup
-
-1. Configure Telegram in `.env` (see above)
-2. **Install for PC startup (no terminal window):**
+Install the Windows logon task:
 
 ```powershell
-cd personal_agent
 uv run install_gateway.py
 ```
 
-This registers a Windows Scheduled Task (`KaraGateway`) that runs at logon using
-`pythonw.exe` — no console window.
-
-Start immediately without reboot:
-
-```powershell
-schtasks /Run /TN KaraGateway
-```
-
-Remove startup task:
-
-```powershell
-uv run install_gateway.py --uninstall
-```
-
-### Manual run (with terminal, for debugging)
+This creates the `KaraGateway` Scheduled Task and launches the gateway without a console window. For debugging:
 
 ```powershell
 uv run gateway.py
 ```
 
-### Updates
+The gateway auto-restarts after source changes, persists conversations in `brain/state.db`, and delivers pending scheduler results after restarts. Regular chat replies render Markdown as Telegram HTML; malformed formatting falls back to plain text. Commands intentionally remain plain text.
 
-When you pull new code or change dependencies:
+## Configuration
 
-```powershell
-uv run update.py
-```
+Copy `.env.example` and set only the integrations you use. Never commit `.env`.
 
-This runs `git pull`, `uv sync`, and signals the gateway to **restart itself**
-gracefully (picks up new code). You can also send `/restart` in Telegram.
-
-The gateway also auto-restarts when it detects Python source changes (every ~10s).
-
-### Logs & state
-
-| Path | Purpose |
+| Area | Key settings |
 |---|---|
-| `brain/state.db` | Conversation history (SQLite) |
-| `brain/logs/gateway.log` | Gateway log file |
-| `brain/gateway.pid` | Running gateway PID |
-| `brain/restart.flag` | Pending restart signal |
+| Providers | `OLLAMA_API_KEY`, `OLLAMA_HOST`, `OLLAMA_MODEL`, `EMBED_MODEL` |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS` |
+| Web search | `SEARXNG_URL`, Cloudflare Access variables, public fallback URLs |
+| Files | `KARA_FILE_READ_ROOTS`, `KARA_FILE_WRITE_ROOTS`, `KARA_ALLOW_SENSITIVE_FILES` |
+| Documents | `KARA_DOCUMENT_MAX_BYTES`, `KARA_PDF_MAX_PAGES`, OCR/PDF time and memory limits |
+| Desktop | `KARA_CUA_ENABLED`, `KARA_CUA_DRIVER_CMD`, `KARA_CUA_TELEMETRY` |
+| Scheduling | `KARA_TIMEZONE`, `KARA_SCHEDULER_POLL_SECONDS` |
+| GitHub | `GITHUB_CLIENT_ID`, `GITHUB_OAUTH_SCOPES`, `GITHUB_GIT_TIMEOUT` |
+| Mnemosyne | `MNEMOSYNE_BIN`, `MNEMOSYNE_DB_PATH` |
+| Email | Himalaya configuration plus `EMAIL_SEND_ENABLED=true` only when deliberate |
 
-Telegram commands: `/start`, `/models`, `/model`, `/model <name>`, `/new`, `/restart`
+Filesystem access is intentionally constrained. Reads/searches default to the project and user home; writes default to the project. Sensitive paths such as `.env`, credential stores, and application profiles are blocked unless explicitly enabled.
 
-### Gateway tuning (optional `.env`)
+## Tools and boundaries
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `GATEWAY_POLL_INTERVAL` | `10` | Seconds between restart/update checks |
-| `KARA_SCHEDULER_POLL_SECONDS` | `15` | Seconds between durable-job checks |
+### Web and email
 
-## Configuration (`.env`)
+- `web_search` and `web_fetch` retrieve current public information.
+- Himalaya-backed email tools can inspect folders, list/search/read messages, and mark messages read.
+- Sending email is a separate safety gate and remains disabled unless `EMAIL_SEND_ENABLED=true` is set.
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `OLLAMA_API_KEY` | Ollama cloud API key | (local mode if blank) |
-| `OLLAMA_HOST` | Ollama API host | cloud if key set, else localhost |
-| `OLLAMA_MODEL` | Default chat model | `gpt-oss:120b` |
-| `EMBED_MODEL` | Embedding model for memory search | `nomic-embed-text` |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token | (disabled) |
-| `TELEGRAM_ALLOWED_USER_IDS` | Allowed Telegram user ids | (required for bot) |
-| `SEARXNG_URL` | Preferred SearXNG search instance | `https://search.ameera.dev` |
-| `WEB_SEARCH_FALLBACK_URL` | Public HTML search fallback when SearXNG is unavailable | Brave Search |
-| `WEB_SEARCH_SECONDARY_FALLBACK_URL` | Secondary public HTML fallback | DuckDuckGo HTML |
-| `CF_ACCESS_CLIENT_ID` | Cloudflare Access service token id | (optional) |
-| `CF_ACCESS_CLIENT_SECRET` | Cloudflare Access service token secret | (optional) |
-| `OBSIDIAN_VAULT_PATH` | Optional external Obsidian vault | (disabled) |
-| `KARA_FILE_READ_ROOTS` | `;`-separated roots allowed for file read/search on Windows | project + user home |
-| `KARA_FILE_WRITE_ROOTS` | `;`-separated roots allowed for file writes on Windows | project only |
-| `KARA_ALLOW_SENSITIVE_FILES` | Allow credential/profile paths such as `.ssh`, `.codex`, and `.env` | `0` |
-| `KARA_FILE_SEARCH_TIMEOUT` | Maximum seconds spent on one PC file search | `12` |
-| `KARA_DOCUMENT_MAX_BYTES` | Maximum PDF/image input size | `52428800` |
-| `KARA_DOCUMENT_MAX_CHARS` | Maximum extracted text returned per call | `50000` |
-| `KARA_PDF_MAX_PAGES` | Maximum PDF pages returned per call | `50` |
-| `KARA_OCR_MAX_IMAGE_PIXELS` | Maximum accepted image pixel count | `40000000` |
-| `KARA_OCR_TIMEOUT_SECONDS` | Maximum local OCR execution time | `30` |
-| `KARA_PDF_TIMEOUT_SECONDS` | Maximum total PDF worker execution time | `60` |
-| `KARA_PDF_WORKER_MEMORY_MB` | Maximum aggregate memory for the PDF/OCR worker process tree | `512` |
-| `KARA_CUA_ENABLED` | Enable the installed `cua-driver` adapter | `1` |
-| `KARA_CUA_DRIVER_CMD` | Override the `cua-driver` executable path | found on `PATH` |
-| `KARA_CUA_TELEMETRY` | Opt in to cua-driver telemetry | `0` |
-| `KARA_CUA_FOCUS_SETTLE_SECONDS` | Brief delay before foreground verification | `0.2` |
-| `KARA_TIMEZONE` | Default IANA timezone for reminder and cron tools | `Europe/Dublin` |
-| `KARA_SCHEDULER_POLL_SECONDS` | Scheduler polling interval in seconds | `15` |
-| `GITHUB_CLIENT_ID` | GitHub OAuth App client id (Device Flow enabled) | (required for GitHub tools) |
-| `GITHUB_OAUTH_SCOPES` | Space-separated OAuth scopes requested at login | `repo workflow gist read:org notifications` |
-| `GITHUB_GIT_TIMEOUT` | Max seconds for a single `git` subprocess call | `120` |
-| `MNEMOSYNE_BIN` | Path/command for the Mnemosyne CLI | `mnemosyne` (must be on `PATH`) |
-| `MNEMOSYNE_DB_PATH` | Optional override for Mnemosyne's SQLite database path | (Mnemosyne's own default) |
+### Local files and documents
 
-Semantic memory uses hybrid search (embeddings + keywords). If embeddings fail,
-`search_memory` falls back to keyword search.
-
-## Reminders and autonomous scheduled jobs
-
-Kara has a durable scheduler backed by `brain/scheduler.db`. Jobs survive gateway
-and Windows restarts and are delivered back to the authenticated Telegram chat
-that created them. A hidden runtime clock is also regenerated immediately before
-every model request, so Kara always receives the current local and UTC datetime,
-day, timezone, and UTC offset without displaying or persisting that metadata.
-
-| Tool | Capability |
+| Area | Tools |
 |---|---|
-| `schedule_reminder` | Save exact text and deliver it directly without an LLM run |
-| `schedule_agent_job` | Start a fresh unattended Kara run and deliver its result |
-| `list_scheduled_jobs` | List only the current authenticated user's jobs |
-| `pause_scheduled_job` / `resume_scheduled_job` | Stop or resume future runs |
-| `run_scheduled_job_now` | Queue an owned job for the next polling cycle |
-| `delete_scheduled_job` | Permanently remove an owned job |
+| Files | `list_directory`, `search_files`, `read_file`, `file_info`, `write_file`, `copy_file`, `move_file`, `replace_in_file` |
+| Office | `read_office_file`, `create_word_document`, `append_word_text`, `create_excel_workbook`, `set_excel_cell`, `create_powerpoint`, `append_powerpoint_slide` |
+| PDFs/images | `read_pdf`, `ocr_image` |
+| SQLite | `inspect_sqlite_database`, `query_sqlite_database` |
+| Python | `inspect_python_file`, `validate_python_file`, `run_python_tests` |
 
-Schedules accept an offset-aware ISO timestamp, a strict relative delay such as
-`in 15m` or `in 2h`, or a standard five-field cron expression such as
-`0 8 * * *`. Cron is evaluated in the supplied IANA timezone and therefore
-follows daylight-saving changes.
+Office files are manipulated directly as OOXML packages; Microsoft Office does not need to be open. Created packages are reopened after saving to verify they are valid. PDF and image extraction stays local and is bounded by file, page, pixel, timeout, and response limits.
 
-Autonomous jobs have a separate safety boundary: they can use only observational
-web, memory-search, file-read, Office-read, SQLite-read, Python-inspection, and
-Windows-inventory tools. They cannot write files, send email, drive the desktop,
-execute tests, mutate memory, or recursively create more scheduled jobs. A job
-interrupted by a gateway restart is recovered with at-least-once delivery.
+SQLite access is read-only. Python inspection never executes source. `run_python_tests` is restricted to fixed `unittest discover` inside configured write roots and requires exact two-turn approval.
+
+### Windows inspection and desktop use
+
+Read-only Windows inventory tools:
+
+- `system_overview`
+- `list_processes`
+- `list_services`
+- `list_scheduled_tasks`
+- `disk_usage`
+
+They use fixed PowerShell inventory scripts and cannot stop processes, change services, edit tasks, or alter disks.
+
+`computer_use` uses the installed `cua-driver` to list apps/windows and capture accessibility elements. Clicks, typing, keys, scrolling, focus, and foregrounding require a fresh approval token bound to the exact target process/window/title. Keyboard actions verify the approved target is foreground before input is delivered; if Windows refuses activation, the action fails closed rather than acting on another window.
+
+### Scheduling and live time
+
+The scheduler is backed by `brain/scheduler.db`. Jobs survive gateway and machine restarts and are owned by the authenticated Telegram user who created them.
+
+- `schedule_reminder` — deliver exact reminder text.
+- `schedule_agent_job` — run an isolated autonomous agent task.
+- `list_scheduled_jobs`, `pause_scheduled_job`, `resume_scheduled_job`, `run_scheduled_job_now`, `delete_scheduled_job` — manage owned jobs.
+
+Schedules accept an offset-aware ISO timestamp, a strict relative delay such as `in 15m`, or five-field cron such as `0 8 * * *`. Cron schedules use the supplied IANA timezone and follow daylight-saving changes. A live local/UTC clock is injected into each model request.
+
+Autonomous scheduled agent jobs are deliberately restricted to observational tools: web, memory search, file/document/SQLite/Python reads, and Windows inventory. They cannot write files, send email, drive the desktop, execute tests, mutate memory, or create jobs.
 
 ## GitHub
 
-Kara talks to GitHub over the REST API, authenticated with a real **OAuth App
-+ Device Flow login** — not a personal access token (fine-grained or classic).
-The device flow needs no client secret and no redirect webserver, so it fits
-a CLI/Telegram agent cleanly.
+GitHub uses OAuth App Device Flow—not a personal access token. Create an OAuth App, enable Device Flow, put its Client ID in `.env`, then authenticate:
 
-### Setup
-
-1. On github.com: **Settings → Developer settings → OAuth Apps → New OAuth App**.
-   Homepage/callback URL can be anything (`http://localhost` works); device
-   flow doesn't use them.
-2. Open the new app's settings and check **Enable Device Flow**.
-3. Copy the **Client ID** into `.env`:
-
-```
-GITHUB_CLIENT_ID=your_client_id_here
-```
-
-4. Log in:
-
-```bash
+```powershell
 uv run python github_auth.py login
 ```
 
-Follow the printed URL + code, approve in the browser. Tokens are stored in
-`brain/auth.json` (gitignored), never in `.env`. Check status any time with
-`uv run python github_auth.py status`, or ask Kara to run `github_status`.
+Tokens are stored in `brain/auth.json` and are gitignored. `github_status` reports connection status and granted scopes.
 
-### Scopes
+Read tools cover repositories, contents, branches, commits, code, issues, pull requests, Actions, and notifications. Clone/pull uses an ephemeral OAuth credential. Publishing actions—including issues, comments, PRs, merges, stars, and `git_push_changes`—require exact two-turn approval.
 
-Default scope is `repo workflow gist read:org notifications` — full access to
-your private and public repos, Actions, gists, org read, and notifications.
-Override with `GITHUB_OAUTH_SCOPES` in `.env` before logging in (e.g. drop to
-`public_repo` for public-only access).
+## Mnemosyne MCP memory (optional)
 
-### Tools
+[Mnemosyne](https://github.com/mnemosyne-oss/mnemosyne) adds a separate SQLite-backed memory system alongside Kara’s own brain. It is optional and does not replace core memory, learnings, sessions, or the vector index.
 
-| Tool | Capability |
-|---|---|
-| `github_status` | Connection state, granted scopes, rate limit |
-| `github_search_repositories` / `github_get_repository` | Search and inspect repos |
-| `github_list_repository_contents` / `github_read_repository_file` | Browse and read files without cloning |
-| `github_search_code` | Code search, repo-scoped or global |
-| `github_list_branches` / `github_list_commits` | Branch and commit history |
-| `github_list_issues` / `github_get_issue` / `github_list_issue_comments` / `github_search_issues` | Read issues and PR/issue search |
-| `github_list_pull_requests` / `github_get_pull_request` / `github_get_pull_request_diff` / `github_list_pull_request_files` | Read pull requests and diffs |
-| `github_list_workflow_runs` / `github_get_workflow_run` | Actions/CI status |
-| `github_list_notifications` | Unread (or all) notifications |
-| `github_create_issue` / `github_comment_on_issue` / `github_close_issue` | Write to issues — **approval-gated** |
-| `github_create_pull_request` / `github_merge_pull_request` | Open/merge PRs — **approval-gated** |
-| `github_star_repository` | Star a repo — **approval-gated** |
-| `git_clone_repository` / `git_pull_repository` | Clone/pull into an allowed write root using the OAuth token as an ephemeral, never-persisted git credential |
-| `git_push_changes` | Stage, commit, and push — **approval-gated** |
+Install it into Kara’s project environment:
 
-All actions that publish something (issues, comments, PRs, merges, stars, git
-pushes) use the same exact two-turn approval pattern as `run_python_tests`:
-Kara requests approval, shows a one-time phrase, and only proceeds once you
-reply with that exact phrase in your next message. Read tools need no approval.
-`git_clone_repository` / `git_pull_repository` stay inside `KARA_FILE_WRITE_ROOTS`
-like the rest of Kara's file tools.
-
-## Mnemosyne (optional external memory, over MCP)
-
-[Mnemosyne](https://github.com/mnemosyne-oss/mnemosyne) is a separate,
-SQLite-backed, three-tier memory system for AI agents. Kara can talk to it
-as an MCP server, purely as an **additional, optional** memory surface — it
-does not replace or share data with Kara's own core/learnings/session
-memory (`tools/memory_tools.py`).
-
-### Setup
-
-Install it as a real dependency of Kara's own project (from `personal_agent/`),
-not via a bare `pip install` in some other terminal/Python — the gateway only
-sees packages inside its own `.venv`:
-
-```bash
+```powershell
 uv add "mnemosyne-memory[mcp,embeddings]"
 ```
 
-Skip the `[all]` extra unless you have a C/C++ build toolchain installed — it
-pulls in `llama-cpp-python`, which compiles from source (CMake + `nmake`/MSVC)
-and will fail on a plain machine. `[mcp,embeddings]` gets the full MCP server
-plus real vector search (via `fastembed` + `sqlite-vec`, prebuilt wheels, no
-compiler needed) — the `[llm]` extra is for a separate local-LLM feature
-Kara's tools don't use.
+Kara lazily starts `mnemosyne mcp` over stdio on first use. The bridge caches the MCP tool list for the connection, strips Kara credentials from the child environment while preserving `MNEMOSYNE_*` settings, and refuses ambiguous tool-name matches. `mnemosyne_status` shows the live server inventory; `mnemosyne_remember`, `mnemosyne_recall`, and `mnemosyne_call_tool` provide the base interface to Mnemosyne’s version-specific tool surface.
 
-That's it — `tools/mnemosyne_tools.py` spawns `mnemosyne mcp` (stdio) itself
-the first time a Mnemosyne tool is called; there's no separate process to
-manage. Executable discovery checks, in order: an absolute `MNEMOSYNE_BIN`
-path, the venv this exact interpreter is running from (`sys.prefix`), then a
-`PATH` search. The middle step matters because the gateway is launched by
-directly invoking `.venv/Scripts/python.exe` (Task Scheduler → a `.vbs`
-launcher, or the gateway's own self-restart) — that never puts `.venv/Scripts`
-on `PATH`, so a `PATH`-only lookup works in a dev shell (`uv run ...`) but
-silently fails for the real running gateway even though the package is
-correctly installed. Only set `MNEMOSYNE_BIN` in `.env` if the executable
-genuinely lives outside this venv.
+## Security model
 
-If the gateway was already running when you installed the dependency, restart
-it (`schtasks /Run /TN KaraGateway`, or let it pick up the change automatically
-on its next ~10s source-change poll — though a fresh `.venv` package isn't a
-source-file change, so a manual restart is safer here).
+- `.env`, `brain/`, virtual environments, and downloaded binaries are gitignored.
+- Credentials are not passed to third-party subprocesses unless that subprocess requires its own explicitly scoped configuration.
+- Local reads/writes are rooted and sensitive paths are blocked by default.
+- Web content and downloaded text are never treated as permission to change local files.
+- SQLite and Windows inventory are read-only.
+- Email sending, test execution, desktop input, and GitHub publishing use separate safety gates.
+- Approval tokens are one-time, short-lived, user-authored, and bound to the exact proposed action/target where applicable.
 
-### Tools
+## Development
 
-| Tool | Capability |
-|---|---|
-| `mnemosyne_status` | Whether Mnemosyne is installed/reachable, and its live MCP tool inventory |
-| `mnemosyne_remember` | Store a memory (optionally tagged) |
-| `mnemosyne_recall` | Search stored memories |
-| `mnemosyne_call_tool` | Call any other Mnemosyne MCP tool by exact name (knowledge-graph, multi-agent, working-note, operational) — Mnemosyne's own docs call its full tool surface version-specific, so this is a generic escape hatch rather than a hardcoded list |
+The repository includes an extensive `unittest` suite for tools, auth, providers, scheduling, document artifacts, gateway behavior, and safety boundaries. Run it only in a trusted local development environment:
 
-The bridge (`tools/mcp_bridge.py`) is a generic stdio MCP client — one
-background thread keeps a persistent session open to any MCP server
-subprocess and exposes ordinary blocking `list_tools()`/`call_tool()` calls,
-so future MCP servers can be wired in the same way.
+```powershell
+uv run python -m unittest discover -s tests
+```
 
-## Local files, documents/OCR, SQLite, Python, Windows, and computer use
+Useful scripts are in `scripts/`, including gateway install/start/stop helpers and file-work smoke tests.
 
-Kara exposes native file tools as normal model-callable functions. Relative paths
-resolve against `personal_agent/`. Read/search access includes the user's home
-folder by default; writes remain in the project unless `KARA_FILE_WRITE_ROOTS`
-is deliberately expanded. Common credential stores and application profiles are
-blocked unless `KARA_ALLOW_SENSITIVE_FILES=1` is explicitly set.
+## License / status
 
-### General files
-
-| Tool | Capability |
-|---|---|
-| `list_directory` / `search_files` | Bounded local discovery and text search |
-| `read_file` / `file_info` | Bounded text reads and structured metadata |
-| `write_file` | Explicit UTF-8 file creation, overwrite, or append |
-| `copy_file` | Copy a file into a write root; refuses implicit overwrite |
-| `move_file` | Move/rename only when both paths are in write roots |
-| `replace_in_file` | Exact text replacement only when the expected match count agrees |
-
-### Microsoft Office files
-
-Office tools create and modify real OOXML files directly; Microsoft Office does
-not need to be open.
-
-| Tool | Capability |
-|---|---|
-| `read_office_file` | Extract bounded text/rows from `.docx`, `.xlsx`, and `.pptx` |
-| `create_word_document` / `append_word_text` | Create and append Word paragraphs |
-| `create_excel_workbook` / `set_excel_cell` | Create typed workbooks from CSV and update one A1 cell |
-| `create_powerpoint` / `append_powerpoint_slide` | Create a styled deck from JSON and append slides |
-
-Created Office packages are reopened after saving so corrupt output is reported
-rather than presented as successful.
-
-### PDF and image OCR
-
-PDF and OCR tools are observational and use the same configured file-read roots
-and sensitive-path policy as Kara's other file tools. Files remain local: PDF
-text is extracted with PyMuPDF, while image-only PDF pages and screenshots use
-the Windows Media OCR engine already included with Windows 10/11.
-
-| Tool | Capability |
-|---|---|
-| `read_pdf` | Extract bounded embedded text from `.pdf`; OCR scanned or nearly textless pages automatically |
-| `ocr_image` | Extract local text from `.png`, `.jpg`/`.jpeg`, `.bmp`, `.tif`, and `.tiff` |
-
-The tools enforce file-size, page-count, image-pixel, response-character, and
-OCR-time limits. They do not upload documents, modify source files, bypass PDF
-passwords, or promise perfect handwriting/layout recognition. Large PDFs can be
-paged with `start_page` and `max_pages`.
-
-### SQL and Python files
-
-Plain `.sql` and `.py` source can be read, written, copied, moved, or patched by
-the general tools. Format-aware tools add safe inspection:
-
-| Tool | Capability and boundary |
-|---|---|
-| `inspect_sqlite_database` | Tables, views, columns, indexes, and create SQL from local SQLite files |
-| `query_sqlite_database` | One bounded read-only query; URI `mode=ro`, `query_only`, authorizer, and timeout enforced |
-| `inspect_python_file` | AST imports, functions, classes, methods, docstrings, and syntax; never executes code |
-| `validate_python_file` | Compile-only syntax validation with exact diagnostics; never executes code |
-| `run_python_tests` | Fixed `unittest discover`, write-root only, secret-stripped child environment, bounded output/timeout, exact two-turn approval |
-
-The SQLite query tool cannot insert, update, delete, attach, migrate, or alter a
-database. Python test execution accepts no shell command and cannot run until the
-user replies with the exact generated approval phrase in a later message.
-
-Web search is available through `web_search` (preferred SearXNG, then public
-Brave Search / DuckDuckGo HTML fallbacks) and `web_fetch`.
-
-Kara also has a native, read-only Windows operations toolkit:
-
-| Tool | Inspects |
-|---|---|
-| `system_overview` | Windows version, machine model, memory, CPU count, and boot time |
-| `list_processes` | Process names, PIDs, parent PIDs, memory use, and executable paths |
-| `list_services` | Service names, status, startup mode, and owning PID |
-| `list_scheduled_tasks` | Task names, paths, state, principal, action count, and trigger count |
-| `disk_usage` | Fixed-drive capacity, used space, free space, labels, and filesystems |
-
-These tools run fixed PowerShell inventory scripts and apply user-provided filters
-inside Python, preventing filter text from becoming shell code. They cannot stop
-processes, modify services, edit tasks, or change disks.
-
-If `cua-driver` is installed (Hermes installs the same driver), Kara also exposes
-one `computer_use` tool. `list_apps`, `list_windows`, and accessibility-tree
-`capture` calls are read-only. Click, typing, key, scroll, and focus actions use
-a two-message approval: Kara returns `approve <token>`, and only an exact reply
-from the user can authorize that exact action against the resolved PID, HWND,
-title, and app identity. Keyboard actions foreground and verify that same window
-internally, then use foreground delivery; Chromium/Electron background failures
-for pointer/scroll actions are retried the same way without asking for a second
-approval. Screenshots are deliberately not fed back as base64 text; the
-Codex/Ollama model operates on the driver's numbered accessibility elements
-instead.
+This is a private personal-agent project under active development. Expect APIs, tools, and configuration to evolve.

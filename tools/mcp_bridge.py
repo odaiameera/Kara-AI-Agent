@@ -23,8 +23,13 @@ import asyncio
 import threading
 from typing import Any
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+# LEARN: the `mcp` SDK is imported lazily inside _main(), not here. Importing it
+# costs ~0.9-1.2s (it eagerly pulls in mcp.server.fastmcp + sse_starlette, which
+# a stdio *client* never uses) — and that price would be paid on every gateway
+# boot, every gateway self-restart, every CLI run, and every scheduled job, even
+# when no MCP tool is ever called. Deferring it keeps `import kara` fast and
+# matches the lazy-subprocess design below. Narrower import paths do NOT help;
+# `mcp.client.session` still drags in the server modules.
 
 
 class McpBridgeError(RuntimeError):
@@ -53,7 +58,8 @@ class McpServerBridge:
         self._connect_timeout = connect_timeout
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
-        self._session: ClientSession | None = None
+        self._session: Any | None = None
+        self._tools_cache: list[dict[str, Any]] = []
         self._ready = threading.Event()
         self._start_error: BaseException | None = None
         self._stop_event: asyncio.Event | None = None
@@ -71,10 +77,20 @@ class McpServerBridge:
     async def _main(self) -> None:
         self._stop_event = asyncio.Event()
         try:
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
+
             server_params = StdioServerParameters(command=self._command, args=self._args, env=self._env)
             async with stdio_client(server_params) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
+                    # LEARN: the server's tool list can't change while this
+                    # subprocess lives, so cache it once here instead of paying a
+                    # ~5ms round trip (24KB re-validated) on every tool call.
+                    self._tools_cache = [
+                        {"name": t.name, "description": t.description or "", "input_schema": t.inputSchema}
+                        for t in (await session.list_tools()).tools
+                    ]
                     self._session = session
                     self._ready.set()
                     await self._stop_event.wait()
@@ -111,12 +127,9 @@ class McpServerBridge:
         return future.result(self._connect_timeout)
 
     def list_tools(self) -> list[dict[str, Any]]:
-        """Return the MCP server's currently advertised tools."""
-        result = self._run_coro(lambda: self._session.list_tools())  # type: ignore[union-attr]
-        return [
-            {"name": t.name, "description": t.description or "", "input_schema": t.inputSchema}
-            for t in result.tools
-        ]
+        """Return the MCP server's advertised tools (cached at connect time)."""
+        self.ensure_started()
+        return list(self._tools_cache)
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Call one MCP tool by exact name and return the raw CallToolResult."""

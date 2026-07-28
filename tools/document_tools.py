@@ -650,9 +650,3 @@ def _run_pdf_worker() -> int:
         result = _json({"ok": False, "error": f"Invalid PDF worker request: {exc}"})
     sys.stdout.write(result)
     return 0
-
-
-if __name__ == "__main__":
-    if sys.argv[1:] == ["--pdf-worker"]:
-        raise SystemExit(_run_pdf_worker())
-    raise SystemExit("document_tools is not a standalone command")

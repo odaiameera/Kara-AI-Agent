@@ -10,16 +10,14 @@ STUDY GUIDE
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import time
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 
 import httpx
 
-import config
+import auth_store
+from auth_store import auth_file  # re-exported: callers use github_auth.auth_file()
 
 GITHUB_PROVIDER_ID = "github"
 GITHUB_CLIENT_ID_ENV = "GITHUB_CLIENT_ID"
@@ -28,12 +26,10 @@ DEFAULT_SCOPES = "repo workflow gist read:org notifications"
 DEVICE_CODE_URL = "https://github.com/login/device/code"
 ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 VERIFY_URL = "https://github.com/login/device"
-API_BASE_URL = "https://api.github.com"
 REFRESH_SKEW_SECONDS = 120
-AUTH_FILE_NAME = "auth.json"
 
 
-class GitHubAuthError(RuntimeError):
+class GitHubAuthError(auth_store.AuthStoreError):
     """Raised when GitHub OAuth state is missing, invalid, or misconfigured."""
 
 
@@ -52,38 +48,6 @@ def _scopes() -> str:
     return os.getenv(GITHUB_SCOPES_ENV, "").strip() or DEFAULT_SCOPES
 
 
-def auth_file() -> Path:
-    """Return Kara's private auth store path under the gitignored brain directory."""
-    return config.BRAIN_DIR / AUTH_FILE_NAME
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _load_store() -> dict[str, Any]:
-    path = auth_file()
-    if not path.exists():
-        return {"version": 1, "providers": {}}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise GitHubAuthError(f"Could not read {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise GitHubAuthError(f"Invalid auth store shape in {path}.")
-    data.setdefault("version", 1)
-    data.setdefault("providers", {})
-    return data
-
-
-def _save_store(data: dict[str, Any]) -> None:
-    config.ensure_brain()
-    path = auth_file()
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(path)
-
-
 def save_tokens(tokens: dict[str, Any], *, scope: str = "") -> None:
     """Persist GitHub OAuth tokens to ``brain/auth.json``.
 
@@ -97,12 +61,10 @@ def save_tokens(tokens: dict[str, Any], *, scope: str = "") -> None:
     refresh_expires_in = tokens.get("refresh_token_expires_in")
     now = time.time()
 
-    store = _load_store()
-    providers = store.setdefault("providers", {})
     entry: dict[str, Any] = {
         "auth_mode": "oauth-device",
         "scope": scope or str(tokens.get("scope", "") or ""),
-        "last_refresh": _now_iso(),
+        "last_refresh": auth_store.now_iso(),
         "tokens": {
             "access_token": access_token,
         },
@@ -113,15 +75,13 @@ def save_tokens(tokens: dict[str, Any], *, scope: str = "") -> None:
         entry["access_token_expires_at"] = now + float(expires_in)
     if isinstance(refresh_expires_in, (int, float)):
         entry["refresh_token_expires_at"] = now + float(refresh_expires_in)
-    providers[GITHUB_PROVIDER_ID] = entry
-    _save_store(store)
+    auth_store.write_provider(GITHUB_PROVIDER_ID, entry)
 
 
 def read_tokens() -> dict[str, Any]:
     """Read stored GitHub tokens or raise a clear re-login error."""
-    store = _load_store()
-    state = store.get("providers", {}).get(GITHUB_PROVIDER_ID)
-    if not isinstance(state, dict):
+    state = auth_store.read_provider(GITHUB_PROVIDER_ID)
+    if state is None:
         raise GitHubAuthError(
             "No GitHub credentials stored. Run `uv run python github_auth.py login`."
         )
@@ -190,10 +150,12 @@ def runtime_credentials(*, refresh_if_expiring: bool = True) -> dict[str, str]:
 
 
 def has_credentials() -> bool:
+    # LEARN: catch the shared base — a corrupt auth.json raises AuthStoreError
+    # from auth_store, which is NOT a GitHubAuthError.
     try:
         read_tokens()
         return True
-    except GitHubAuthError:
+    except auth_store.AuthStoreError:
         return False
 
 
@@ -273,7 +235,7 @@ def login() -> None:
 def status() -> None:
     try:
         state = read_tokens()
-    except GitHubAuthError as exc:
+    except auth_store.AuthStoreError as exc:
         print(str(exc))
         return
     print("GitHub credentials are stored for Kara.")

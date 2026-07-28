@@ -30,10 +30,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import config  # noqa: F401 - imported for its side effect: loads personal_agent/.env
 from tools.mcp_bridge import McpBridgeError, McpServerBridge, extract_text
 
 MNEMOSYNE_BIN = os.getenv("MNEMOSYNE_BIN", "mnemosyne").strip() or "mnemosyne"
-MNEMOSYNE_DB_PATH = os.getenv("MNEMOSYNE_DB_PATH", "").strip()
+
+# LEARN: Kara's .env holds Telegram/Ollama/Cloudflare/GitHub credentials. Handing
+# os.environ wholesale to a third-party subprocess exports all of them, so strip
+# secret-looking names (same denylist idiom as tools/python_tools.py) while
+# always preserving MNEMOSYNE_* so Mnemosyne's own config still reaches it.
+_SECRET_NAME_FRAGMENTS = ("api_key", "apikey", "token", "password", "secret", "credential", "cookie")
 
 _bridge: McpServerBridge | None = None
 
@@ -75,49 +81,70 @@ def _not_ready_message() -> str:
     return ""
 
 
+def _subprocess_environment() -> dict[str, str]:
+    """Copy the environment minus Kara's own secrets, keeping MNEMOSYNE_* intact."""
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper().startswith("MNEMOSYNE_")
+        or not any(fragment in key.casefold() for fragment in _SECRET_NAME_FRAGMENTS)
+    }
+
+
 def _get_bridge() -> McpServerBridge:
     global _bridge
     if _bridge is None:
-        env = dict(os.environ)
-        if MNEMOSYNE_DB_PATH:
-            env["MNEMOSYNE_DB_PATH"] = MNEMOSYNE_DB_PATH
-        _bridge = McpServerBridge(_resolved_bin() or MNEMOSYNE_BIN, ["mcp"], env=env)
+        _bridge = McpServerBridge(
+            _resolved_bin() or MNEMOSYNE_BIN, ["mcp"], env=_subprocess_environment()
+        )
     return _bridge
 
 
 def _resolve_tool(*candidates: str) -> dict[str, Any]:
     """Find the live MCP tool (name + input schema) matching one of the given
-    exact names or substrings, since Mnemosyne's own docs call the tool
-    surface version-specific."""
-    tools = _get_bridge().list_tools()
-    by_name = {t["name"]: t for t in tools}
+    exact names, since Mnemosyne's own docs call the tool surface
+    version-specific.
+
+    A substring fallback covers an upstream rename, but only when it is
+    unambiguous: 'remember' alone also matches ``mnemosyne_shared_remember``
+    and ``mnemosyne_remember_canonical``, which write to entirely different
+    memory tiers. Guessing between those would silently store the user's
+    memory in the wrong place, so ambiguity raises instead.
+    """
+    by_name = {t["name"]: t for t in _get_bridge().list_tools()}
     for candidate in candidates:
         if candidate in by_name:
             return by_name[candidate]
     for candidate in candidates:
-        for name, tool in by_name.items():
-            if candidate in name:
-                return tool
+        matches = [tool for name, tool in by_name.items() if candidate in name]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise McpBridgeError(
+                f"'{candidate}' ambiguously matches {len(matches)} Mnemosyne tools "
+                f"({', '.join(t['name'] for t in matches)}). Use mnemosyne_call_tool "
+                "with the exact name you want."
+            )
     raise McpBridgeError(
         f"None of the expected tool names ({', '.join(candidates)}) were found on the "
         f"Mnemosyne MCP server. Available tools: {', '.join(by_name) or '(none)'}"
     )
 
 
-def _primary_text_field(schema: dict[str, Any] | None, preferred: tuple[str, ...]) -> str:
+def _primary_text_field(schema: dict[str, Any] | None, properties: dict[str, Any]) -> str:
     """Pick the schema property that should carry the main text payload.
 
-    Tries known field-name candidates first (schemas vary by Mnemosyne
-    version), then falls back to the first required string property.
+    Tries the known field names first (Mnemosyne 3.x uses ``content``; older
+    shapes used ``text``), then falls back to the first required string
+    property so an unfamiliar schema still works.
     """
-    properties = (schema or {}).get("properties") or {}
-    for name in preferred:
+    for name in ("content", "text"):
         if name in properties:
             return name
     for name in (schema or {}).get("required") or []:
         if (properties.get(name) or {}).get("type") == "string":
             return name
-    return preferred[0]
+    return "content"
 
 
 def mnemosyne_status() -> str:
@@ -167,8 +194,7 @@ def mnemosyne_remember(text: str, tags: str = "") -> str:
         tool = _resolve_tool("remember", "store", "memory_store", "mnemosyne_remember")
         schema = tool["input_schema"]
         properties = (schema or {}).get("properties") or {}
-        field = _primary_text_field(schema, ("content", "text"))
-        arguments: dict[str, Any] = {field: text}
+        arguments: dict[str, Any] = {_primary_text_field(schema, properties): text}
         if tags.strip():
             tag_list = [t.strip() for t in tags.split(",") if t.strip()]
             if "tags" in properties:

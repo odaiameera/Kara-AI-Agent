@@ -205,6 +205,40 @@ class StatusAndToolCallTests(unittest.TestCase):
 
         self.bridge.call_tool.assert_called_once_with("recall", {"query": "user preferences", "limit": 50})
 
+    def test_ambiguous_substring_match_raises_instead_of_guessing_a_memory_tier(self) -> None:
+        # The real server exposes mnemosyne_remember, mnemosyne_shared_remember and
+        # mnemosyne_remember_canonical — three different memory tiers. If an upstream
+        # rename ever removes the exact name, guessing between them would silently
+        # write the user's memory to the wrong tier, so ambiguity must fail loudly.
+        self.bridge.list_tools.return_value = [
+            {"name": "mnemosyne_shared_remember", "description": "", "input_schema": {}},
+            {"name": "mnemosyne_remember_canonical", "description": "", "input_schema": {}},
+        ]
+
+        result = mnemosyne_tools.mnemosyne_remember("A fact")
+
+        self.assertIn("ambiguously matches", result)
+        self.bridge.call_tool.assert_not_called()
+
+    def test_subprocess_environment_strips_secrets_but_keeps_mnemosyne_settings(self) -> None:
+        fake_env = {
+            "TELEGRAM_BOT_TOKEN": "secret",
+            "OLLAMA_API_KEY": "secret",
+            "CF_ACCESS_CLIENT_SECRET": "secret",
+            "PATH": "C:/bin",
+            "MNEMOSYNE_DB_PATH": "C:/db/mnemosyne.db",
+            "MNEMOSYNE_SYNC_TOKEN": "kept-because-mnemosyne-owns-it",
+        }
+        with patch.dict(mnemosyne_tools.os.environ, fake_env, clear=True):
+            env = mnemosyne_tools._subprocess_environment()
+
+        self.assertNotIn("TELEGRAM_BOT_TOKEN", env)
+        self.assertNotIn("OLLAMA_API_KEY", env)
+        self.assertNotIn("CF_ACCESS_CLIENT_SECRET", env)
+        self.assertEqual(env["PATH"], "C:/bin")
+        self.assertEqual(env["MNEMOSYNE_DB_PATH"], "C:/db/mnemosyne.db")
+        self.assertEqual(env["MNEMOSYNE_SYNC_TOKEN"], "kept-because-mnemosyne-owns-it")
+
     def test_recall_reports_missing_tool_name(self) -> None:
         self.bridge.list_tools.return_value = [{"name": "unrelated_tool", "description": "", "input_schema": {}}]
 
