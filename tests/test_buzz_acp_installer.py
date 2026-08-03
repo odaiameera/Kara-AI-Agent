@@ -26,6 +26,7 @@ class BuzzACPInstallerTests(unittest.TestCase):
         self.assertIn(f"BUZZ_ACP_AGENT_COMMAND={expected_python}", env_example)
         self.assertIn("BUZZ_ACP_AGENT_ARGS=", env_example)
         self.assertIn("acp_server.py", env_example)
+        self.assertIn("BUZZ_ACP_MULTIPLE_EVENT_HANDLING=queue", env_example)
         self.assertNotIn("run python acp_server.py", env_example)
 
     def test_validate_auth_tag_accepts_compact_json_array(self):

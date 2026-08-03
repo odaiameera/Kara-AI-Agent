@@ -114,10 +114,15 @@ BUZZ_ACP_SUBSCRIBE=mentions
 BUZZ_ACP_CHANNELS=<comma-separated-channel-uuids>
 BUZZ_ACP_RESPOND_TO=owner-only
 BUZZ_ACP_ALLOWED_RESPOND_TO=owner-only
+BUZZ_ACP_MULTIPLE_EVENT_HANDLING=queue
 ```
 
 Keep the default mention filter and ignore-self behavior. `owner-only` is the
-safe default; identity onboarding owns any later allowlist decision.
+safe default; identity onboarding owns any later allowlist decision. Kara's
+provider calls are synchronous and its ACP cancellation handler cannot stop an
+in-flight call, so use `queue` rather than `buzz-acp`'s default `steer` mode;
+new mentions are delivered after the current turn instead of being
+cancelled-and-reprompted concurrently.
 
 The outer single quotes around `BUZZ_AUTH_TAG` are required for systemd's
 `EnvironmentFile` parser to preserve the JSON double quotes. Validate the file
