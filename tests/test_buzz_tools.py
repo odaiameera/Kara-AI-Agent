@@ -66,6 +66,25 @@ class BuzzToolsTests(unittest.TestCase):
         )
         run.assert_called_once()
 
+    @mock.patch.dict(
+        "os.environ",
+        {"BUZZ_RELAY_URL": "wss://relay", "BUZZ_PRIVATE_KEY": "secret", "BUZZ_AUTH_TAG": "tag"},
+        clear=True,
+    )
+    @mock.patch("tools.buzz_tools.subprocess.run")
+    def test_accepted_send_without_event_id_still_suppresses_fallback(self, run):
+        run.return_value.returncode = 0
+        run.return_value.stdout = json.dumps({"accepted": True})
+        run.return_value.stderr = ""
+
+        first = json.loads(buzz_tools.buzz_send_message("finished answer"))
+        second = json.loads(buzz_tools.buzz_send_message("fallback duplicate"))
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(buzz_tools.buzz_message_was_published())
+        self.assertTrue(second["duplicate_suppressed"])
+        run.assert_called_once()
+
     @mock.patch.dict("os.environ", {}, clear=True)
     def test_missing_credentials_does_not_spawn(self):
         result = json.loads(buzz_tools.buzz_send_message("hello"))

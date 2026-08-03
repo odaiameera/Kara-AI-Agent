@@ -22,6 +22,7 @@ class BuzzRequestContext:
     channel: str
     reply_to: str
     published_event_id: str | None = None
+    published: bool = False
 
 
 def set_buzz_request_context(*, channel: str, reply_to: str) -> Token:
@@ -37,7 +38,7 @@ def reset_buzz_request_context(token: Token) -> None:
 
 def buzz_message_was_published() -> bool:
     context = _request_context.get()
-    return bool(context and context.published_event_id)
+    return bool(context and context.published)
 
 
 def buzz_send_message(content: str) -> str:
@@ -51,7 +52,7 @@ def buzz_send_message(content: str) -> str:
         return json.dumps(
             {"ok": False, "error": "Buzz sends require a bound Buzz request context"}
         )
-    if context.published_event_id:
+    if context.published:
         return json.dumps(
             {
                 "ok": True,
@@ -103,6 +104,8 @@ def buzz_send_message(content: str) -> str:
         return json.dumps({"ok": False, "error": "buzz CLI returned invalid JSON"})
     accepted = bool(payload.get("accepted"))
     event_id = payload.get("event_id")
-    if accepted and isinstance(event_id, str) and event_id:
-        context.published_event_id = event_id
+    if accepted:
+        context.published = True
+        if isinstance(event_id, str) and event_id:
+            context.published_event_id = event_id
     return json.dumps({"ok": accepted, "accepted": accepted, "event_id": event_id})
