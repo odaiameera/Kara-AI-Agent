@@ -3,11 +3,12 @@
 How to give Kara its own Buzz identity on Linux, what each authorization gate
 actually is, and how to tell the four near-identical failure modes apart.
 
-**Scope.** This document covers identity provisioning only: keypair, owner
+**Scope.** This document covers identity provisioning: keypair, owner
 attestation, community enrollment, channel membership, inbound access policy,
-credential storage, rotation, revocation, and recovery. The ACP runtime, the
-systemd unit, and gateway wiring are a separate track and are not described
-here.
+credential storage, rotation, revocation, and recovery. Runtime details remain
+in `docs/BUZZ_ACP_LINUX.md`; both tracks deliberately share the protected
+`~/.config/kara/buzz.env` configuration file so preflight and production cannot
+silently validate different identities or channel sets.
 
 > **Port note.** There is no Windows Buzz implementation in this repository to
 > port. `git grep -niE 'buzz-acp|BUZZ_RELAY_URL|BUZZ_PRIVATE_KEY|BUZZ_AUTH_TAG'`
@@ -212,9 +213,21 @@ that broke. It is read-only by construction: every subprocess call goes through
 `users get` / `channels list` / `channels members`. It never reads, stores, or
 prints the private key or an attestation signature.
 
+The systemd unit loads `~/.config/kara/buzz.env` before running the preflight.
+For a manual check, load that same file into a temporary shell rather than
+copying credentials into the repository `.env`:
+
 ```bash
-# .env
-KARA_BUZZ_CHANNEL_IDS=19741b6e-85d1-5cd7-a593-fa0cf9392edf
+set -a
+. ~/.config/kara/buzz.env
+set +a
+uv run python buzz_identity.py check
+```
+
+The channel list is the harness's own setting:
+
+```dotenv
+BUZZ_ACP_CHANNELS=19741b6e-85d1-5cd7-a593-fa0cf9392edf
 ```
 
 ```console
@@ -276,17 +289,20 @@ structure offline before it asks the relay anything.
 
 ## 6. Credential storage on Linux
 
-Kara's existing pattern is `.env` for configuration plus `brain/auth.json` for
-tokens, both gitignored. Buzz credentials follow the same rule with one
-addition: on Linux, file mode matters and process arguments are world-readable.
+Kara's existing local-development pattern is `.env` plus `brain/auth.json`,
+both gitignored. Production Buzz uses one dedicated file instead:
+`~/.config/kara/buzz.env`. The systemd service and `buzz_identity.py` preflight
+receive the same variables from that file, avoiding duplicated credentials and
+configuration drift.
 
 - **Never pass credentials in argv.** `--private-key` on a command line is
   visible to every user on the box via `/proc/<pid>/cmdline`. Use the
   environment variables.
 - **Mode `0600`, owned by the service user.** A key file left group-readable is
   the most common real-world leak here.
-- **Keep them out of the repo and out of prompts.** `.env` and `brain/` are
-  already gitignored; do not add a Buzz key anywhere else.
+- **Keep them out of the repo and out of prompts.** Do not duplicate Buzz
+  credentials into the checkout `.env`; keep the only production copy in
+  `~/.config/kara/buzz.env`.
 - **Credentials must exist where tools actually execute.** A key present in the
   launching process but stripped from the tool subprocess produces exactly the
   first row of the failure matrix, with the agent looking healthy from outside.
@@ -355,7 +371,7 @@ owner-side operation.
 
 - [ ] Kara has its **own** keypair — not the owner's, not another agent's.
 - [ ] The attestation was issued for **this** pubkey (verify: `buzz_identity.py check` passes the identity gate).
-- [ ] `BUZZ_PRIVATE_KEY` lives in a mode-`0600` file owned by the service user, outside the repo.
+- [ ] `BUZZ_PRIVATE_KEY` lives only in `~/.config/kara/buzz.env`, mode `0600`, owned by the service user.
 - [ ] Credentials are **not** in argv, prompts, logs, or commit history.
 - [ ] `BUZZ_ACP_RESPOND_TO=owner-only` (or `allowlist` with an explicit list).
 - [ ] `BUZZ_ACP_ALLOWED_RESPOND_TO` pins the permitted modes so config drift cannot widen access.

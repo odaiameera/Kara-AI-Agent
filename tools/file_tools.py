@@ -95,10 +95,18 @@ def _sensitive_access_enabled() -> bool:
 def _is_sensitive(path: Path) -> bool:
     if _sensitive_access_enabled():
         return False
-    parts = {part.casefold() for part in path.parts}
+    folded_parts = tuple(part.casefold() for part in path.parts)
+    parts = set(folded_parts)
     name = path.name.casefold()
-    return bool(parts & _SENSITIVE_DIRS) or name in _SENSITIVE_FILES or name.startswith(
-        "credentials."
+    kara_config = any(
+        folded_parts[index : index + 2] == (".config", "kara")
+        for index in range(len(folded_parts) - 1)
+    )
+    return (
+        bool(parts & _SENSITIVE_DIRS)
+        or kara_config
+        or name in _SENSITIVE_FILES
+        or name.startswith("credentials.")
     )
 
 

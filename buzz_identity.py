@@ -41,12 +41,10 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
-import config  # noqa: F401  -- imported for its .env loading side effect
-
 ENV_RELAY_URL = "BUZZ_RELAY_URL"
 ENV_PRIVATE_KEY = "BUZZ_PRIVATE_KEY"
 ENV_AUTH_TAG = "BUZZ_AUTH_TAG"
-ENV_CHANNEL_IDS = "KARA_BUZZ_CHANNEL_IDS"
+ENV_CHANNEL_IDS = "BUZZ_ACP_CHANNELS"
 
 BUZZ_BIN = "buzz"
 AUTH_TAG_LABEL = "auth"
@@ -213,7 +211,7 @@ def parse_auth_tag(raw: str) -> AuthTag:
 
 
 def configured_channel_ids() -> tuple[str, ...]:
-    """Channel UUIDs to verify membership in (comma-separated in ``.env``)."""
+    """Channel UUIDs to verify, shared with the running ACP harness."""
     raw = os.getenv(ENV_CHANNEL_IDS, "").strip()
     if not raw:
         return ()

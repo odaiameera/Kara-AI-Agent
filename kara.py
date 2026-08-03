@@ -115,6 +115,7 @@ from tools.mnemosyne_tools import (
     mnemosyne_recall,
     mnemosyne_call_tool,
 )
+from tools.buzz_tools import buzz_send_message
 
 # LEARN: List of callable tool functions; the LLM sees their names via TOOL_SCHEMAS below.
 TOOLS = [
@@ -199,6 +200,7 @@ TOOLS = [
     mnemosyne_remember,
     mnemosyne_recall,
     mnemosyne_call_tool,
+    buzz_send_message,
     search_obsidian,
     read_obsidian_note,
     write_obsidian_note,
@@ -214,6 +216,12 @@ ToolCallback = Callable[[str, dict], None]
 def get_system_instruction(channel: str = "cli") -> str:
     # LEARN: Ternary picks Telegram-specific vs CLI tone; f-string injects core memory into the prompt.
     channel_hint = (
+        "This prompt came from Buzz. Publish the finished human-facing answer with "
+        "`buzz_send_message`; the runtime binds it to the authenticated channel and "
+        "thread, so provide only the finished content. If you return without publishing, "
+        "the ACP adapter publishes your final response as a fallback."
+        if channel == "buzz"
+        else
         "Keep answers concise; Telegram messages should stay short unless the user asks for detail."
         if channel == "telegram"
         else (
@@ -360,6 +368,12 @@ class KaraSession:
 
     def _chat(self, *, with_tools: bool = True) -> dict[str, Any]:
         tools = TOOL_SCHEMAS
+        if getattr(self, "channel", "cli") != "buzz":
+            tools = [
+                item
+                for item in tools
+                if item["function"]["name"] != "buzz_send_message"
+            ]
         if self.allowed_tool_names is not None:
             tools = [
                 item
@@ -429,6 +443,8 @@ class KaraSession:
                     and func_name not in self.allowed_tool_names
                 ):
                     result = f"Error: Tool {func_name} is not allowed in this session."
+                elif func_name == "buzz_send_message" and self.channel != "buzz":
+                    result = "Error: Tool buzz_send_message is only allowed in Buzz sessions."
                 elif (fn := TOOL_REGISTRY.get(func_name)) is None:
                     result = f"Error: Tool {func_name} not found."
                 else:

@@ -7,7 +7,7 @@ Kara is a local-first personal AI agent for CLI and Telegram. She combines confi
 ## What Kara can do
 
 - Chat through configurable providers, including Ollama and OpenAI Codex OAuth.
-- Run continuously through a Telegram gateway with SQLite-backed conversation history.
+- Run continuously through a Telegram gateway or Buzz ACP harness with SQLite-backed conversation history.
 - Maintain a local brain: always-in-context core memory, durable learnings, session logs, and hybrid semantic/keyword recall.
 - Use optional Mnemosyne MCP memory as an additional structured memory surface.
 - Search and fetch the web using SearXNG with Brave/DuckDuckGo fallbacks.
@@ -24,7 +24,7 @@ Kara is a local-first personal AI agent for CLI and Telegram. She combines confi
 ## Architecture
 
 ```text
-CLI / Telegram
+CLI / Telegram / Buzz
      │
      ▼
 KaraSession ── provider chat + tool loop ── tool registry
@@ -117,6 +117,30 @@ uv run gateway.py
 ```
 
 The gateway auto-restarts after source changes, persists conversations in `brain/state.db`, and delivers pending scheduler results after restarts. Regular chat replies render Markdown as Telegram HTML; malformed formatting falls back to plain text. Commands intentionally remain plain text.
+
+## Buzz on Linux (ACP)
+
+Kara exposes `acp_server.py`, a newline JSON-RPC ACP server for the `buzz-acp`
+harness. The ACP boundary binds the harness-supplied channel and thread before
+Kara runs. `buzz_send_message` accepts content only, and the adapter publishes
+Kara's final response as a fallback when the model does not call the tool.
+Credentials and routing IDs are never model tool arguments.
+
+Install the owner-only systemd user-service template:
+
+```bash
+uv run python scripts/install_buzz_acp_linux.py
+```
+
+Review `~/.config/kara/buzz.env`, keep it mode `0600`, then enable the service:
+
+```bash
+systemctl --user enable --now kara-buzz-acp.service
+```
+
+See [`docs/BUZZ_ACP_LINUX.md`](docs/BUZZ_ACP_LINUX.md) for configuration,
+health checks, threaded-reply validation, restart, and rollback. Identity and
+relay/channel enrollment are intentionally documented separately.
 
 ## Configuration
 

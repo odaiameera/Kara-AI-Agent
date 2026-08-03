@@ -45,6 +45,17 @@ class FileToolsTests(unittest.TestCase):
             ):
                 self.assertIn("sensitive", file_tools.read_file(str(root / ".env")).lower())
 
+    def test_kara_service_credentials_are_blocked_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw).resolve()
+            target = home / ".config" / "kara" / "buzz.env"
+            target.parent.mkdir(parents=True)
+            target.write_text("BUZZ_PRIVATE_KEY=secret", encoding="utf-8")
+            with patch.object(file_tools.config, "FILE_READ_ROOTS", (home,)), patch.dict(
+                "os.environ", {"KARA_ALLOW_SENSITIVE_FILES": "0"}
+            ):
+                self.assertIn("sensitive", file_tools.read_file(str(target)).lower())
+
     def test_file_info_returns_structured_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()

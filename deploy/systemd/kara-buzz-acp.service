@@ -1,0 +1,28 @@
+[Unit]
+Description=Kara personal agent on Buzz via ACP
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/kara/buzz.env
+Environment=PATH=__SERVICE_PATH__
+WorkingDirectory=__KARA_REPO__
+ExecStartPre=__KARA_PYTHON__ __KARA_IDENTITY_PREFLIGHT__ check
+ExecStart=__BUZZ_ACP__
+Restart=always
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target
