@@ -9,6 +9,7 @@ import base64
 import json
 import math
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -134,6 +135,10 @@ $result = Await-WinRt ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrR
 """
 
 
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
 def _json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
@@ -229,8 +234,44 @@ def _windows_ocr_text(target: Path, *, timeout_seconds: float | None = None) -> 
     return completed.stdout.strip()
 
 
+def _tesseract_ocr_text(target: Path, *, timeout_seconds: float | None = None) -> str:
+    executable = shutil.which("tesseract")
+    if not executable:
+        raise RuntimeError(
+            "Tesseract OCR is not installed. Install the 'tesseract-ocr' package on Linux "
+            "or 'tesseract' with Homebrew on macOS."
+        )
+    completed = subprocess.run(
+        [executable, str(target), "stdout"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=OCR_TIMEOUT_SECONDS if timeout_seconds is None else max(0.001, timeout_seconds),
+        env=_minimal_local_environment(),
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        detail = detail[-2000:] if detail else f"Tesseract exited {completed.returncode}."
+        raise RuntimeError(detail)
+    return completed.stdout.strip()
+
+
+def _ocr_backend_available() -> bool:
+    return _is_windows() or shutil.which("tesseract") is not None
+
+
+def _local_ocr_text(
+    target: Path, *, timeout_seconds: float | None = None
+) -> tuple[str, str]:
+    if _is_windows():
+        return _windows_ocr_text(target, timeout_seconds=timeout_seconds), "windows_media_ocr"
+    return _tesseract_ocr_text(target, timeout_seconds=timeout_seconds), "tesseract"
+
+
 def ocr_image(path: str) -> str:
-    """Extract text locally from an image using Windows' built-in OCR engine.
+    """Extract text locally using Windows OCR or Tesseract on Linux/macOS.
 
     Args:
         path: Existing PNG, JPEG, BMP, or TIFF image inside an allowed read root.
@@ -255,7 +296,7 @@ def ocr_image(path: str) -> str:
         except (UnidentifiedImageError, Image.DecompressionBombError) as exc:
             raise ValueError(f"Invalid or unsafe image: {exc}") from exc
 
-        text = _windows_ocr_text(target)
+        text, engine = _local_ocr_text(target)
         truncated = len(text) > MAX_EXTRACTED_CHARS
         if truncated:
             text = text[:MAX_EXTRACTED_CHARS]
@@ -266,7 +307,7 @@ def ocr_image(path: str) -> str:
                 "path": str(target),
                 "width": width,
                 "height": height,
-                "engine": "windows_media_ocr",
+                "engine": engine,
                 "text": text,
                 "truncated": truncated,
             }
@@ -556,7 +597,7 @@ def _read_pdf_local(
                             remaining_time = deadline - time.monotonic()
                             if remaining_time <= 0:
                                 raise _PdfTimeLimitError("PDF processing time limit reached.")
-                            ocr_text = _windows_ocr_text(
+                            ocr_text, _ocr_engine = _local_ocr_text(
                                 image_path,
                                 timeout_seconds=min(OCR_TIMEOUT_SECONDS, remaining_time),
                             )

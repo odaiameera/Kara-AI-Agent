@@ -162,7 +162,10 @@ def _target_identity(target: dict[str, Any]) -> dict[str, Any]:
 
 def _app_stem(value: Any) -> str:
     name = os.path.basename(str(value or "")).casefold()
-    return name[:-4] if name.endswith(".exe") else name
+    for suffix in (".exe", ".app"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
 
 
 def _window_area(window: dict[str, Any]) -> int:
@@ -444,7 +447,7 @@ def _current_window_identity(target: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _ensure_foreground(target: dict[str, Any]) -> dict[str, Any]:
-    """Foreground one exact HWND and fail closed when Windows does not land there."""
+    """Persistently foreground one exact window and fail closed if verification fails."""
     initial = _foreground_window()
     if _is_exact_foreground(target, initial):
         return {
@@ -488,7 +491,7 @@ def _ensure_foreground(target: dict[str, Any]) -> dict[str, Any]:
             "ok": False,
             "code": "foreground_activation_failed",
             "message": (
-                "Windows did not foreground the approved target window. No input was sent. "
+                "The operating system did not foreground the approved target window. No input was sent. "
                 "Close any modal/secure-desktop prompt or click the target window manually, "
                 "then request the action again for a fresh approval."
             ),
@@ -661,6 +664,18 @@ def _driver_reported_failure(result: dict[str, Any]) -> str | None:
     return None
 
 
+def _delivery_effect(result: dict[str, Any]) -> str:
+    return str(_driver_field(result, "effect") or "").strip().casefold()
+
+
+def _recommended_escalation(result: dict[str, Any]) -> str:
+    for candidate in _driver_dicts(result):
+        escalation = candidate.get("escalation")
+        if isinstance(escalation, dict):
+            return str(escalation.get("recommended") or "").strip().casefold()
+    return ""
+
+
 def _execute_input_action(
     driver_tool: str,
     args: dict[str, Any],
@@ -668,24 +683,29 @@ def _execute_input_action(
     *,
     keyboard: bool,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Run input against an exact target, escalating background delivery only when needed."""
+    """Run input background-first and follow only the driver's verified escalation rung.
+
+    Action-scoped foreground delivery activates, acts, and restores. It must not
+    be replaced by persistent ``bring_to_front``. An unverifiable result is not
+    retried because duplicate typing/clicking can be destructive.
+    """
+    del keyboard  # Kept in the private signature for compatibility with callers/tests.
+    del target
     foreground: dict[str, Any] | None = None
-    if keyboard:
-        foreground = _ensure_foreground(target)
-        if not foreground.get("ok"):
-            return None, foreground
-        foreground_args = {**args, "delivery_mode": "foreground"}
-        result = _call_driver(driver_tool, foreground_args)
-    else:
-        try:
-            result = _call_driver(driver_tool, {**args, "delivery_mode": "background"})
-        except DriverCallError as exc:
-            if not _is_background_unavailable(exc):
-                raise
-            foreground = _ensure_foreground(target)
-            if not foreground.get("ok"):
-                return None, foreground
-            result = _call_driver(driver_tool, {**args, "delivery_mode": "foreground"})
+    try:
+        result = _call_driver(driver_tool, {**args, "delivery_mode": "background"})
+    except DriverCallError as exc:
+        if not _is_background_unavailable(exc):
+            raise
+        result = _call_driver(driver_tool, {**args, "delivery_mode": "foreground"})
+        foreground = {"mode": "action_scoped", "reason": "background_unavailable"}
+
+    if (
+        _delivery_effect(result) == "suspected_noop"
+        and _recommended_escalation(result) == "foreground"
+    ):
+        result = _call_driver(driver_tool, {**args, "delivery_mode": "foreground"})
+        foreground = {"mode": "action_scoped", "reason": "suspected_noop"}
 
     failure = _driver_reported_failure(result)
     if failure:
@@ -698,7 +718,14 @@ def _normalized_modifiers(modifiers: list[str] | str | None) -> list[str]:
         values = modifiers.split(",")
     else:
         values = modifiers or []
-    aliases = {"control": "ctrl", "windows": "win"}
+    aliases = {
+        "control": "ctrl",
+        "windows": "win",
+        "super": "win",
+        "command": "cmd",
+        "meta": "cmd",
+        "option": "alt",
+    }
     return [aliases.get(str(value).strip().lower(), str(value).strip().lower()) for value in values if str(value).strip()]
 
 
@@ -708,6 +735,8 @@ def computer_use(
     pid: int = 0,
     window_id: int = 0,
     element: int = 0,
+    element_token: str = "",
+    snapshot_id: str = "",
     x: int = -1,
     y: int = -1,
     text: str = "",
@@ -727,11 +756,13 @@ def computer_use(
         pid: Optional target process id from list_apps/list_windows.
         window_id: Optional target window id from list_windows.
         element: Preferred numbered element from the latest capture of this window.
+        element_token: Preferred opaque element handle from capture (safer than an index).
+        snapshot_id: Snapshot handle required by current cua-driver when using element.
         x: Fallback window-local x coordinate when no element exists.
         y: Fallback window-local y coordinate when no element exists.
         text: Text for the type action.
         key: Key name for the key action (return, tab, escape, arrows, letters, etc.).
-        modifiers: Optional ctrl, shift, alt, or win modifiers for key/click.
+        modifiers: Optional ctrl/control, shift, alt/option, win/super, or cmd/command modifiers.
         direction: Scroll direction: up, down, left, or right.
         amount: Scroll amount (1-50).
         max_elements: Maximum accessibility elements returned by capture (1-1000).
@@ -751,8 +782,13 @@ def computer_use(
         return _failure("computer_use_disabled", "Computer use is disabled by KARA_CUA_ENABLED=0.")
 
     normalized_modifiers = _normalized_modifiers(modifiers)
-    if selected in {"click", "double_click", "right_click"} and not element and not (x >= 0 and y >= 0):
-        return _failure("invalid_arguments", "Click actions require element or both x and y.")
+    if selected in {"click", "double_click", "right_click"} and not element and not element_token.strip() and not (x >= 0 and y >= 0):
+        return _failure("invalid_arguments", "Click actions require element_token, element, or both x and y.")
+    if element and not element_token.strip() and not snapshot_id.strip():
+        return _failure(
+            "invalid_arguments",
+            "A bare element index requires the matching snapshot_id from the latest capture; prefer element_token.",
+        )
     if selected == "type" and not text:
         return _failure("invalid_arguments", "The type action requires non-empty text.")
     if selected == "key" and not key.strip():
@@ -791,6 +827,8 @@ def computer_use(
             "pid": int(pid or 0),
             "window_id": int(window_id or 0),
             "element": int(element or 0),
+            "element_token": element_token.strip(),
+            "snapshot_id": snapshot_id.strip(),
             "x": int(x),
             "y": int(y),
             "text": text,
@@ -866,8 +904,12 @@ def computer_use(
             driver_tool = "click"
             args["count"] = 2 if selected == "double_click" else 1
             args["button"] = "right" if selected == "right_click" else "left"
-            if element:
+            if element_token.strip():
+                args["element_token"] = element_token.strip()
+            elif element:
                 args["element_index"] = int(element)
+                if snapshot_id.strip():
+                    args["snapshot_id"] = snapshot_id.strip()
             else:
                 args.update({"x": int(x), "y": int(y)})
             if normalized_modifiers:
@@ -876,8 +918,12 @@ def computer_use(
             driver_tool = "type_text"
             keyboard = True
             args["text"] = text
-            if element:
+            if element_token.strip():
+                args["element_token"] = element_token.strip()
+            elif element:
                 args["element_index"] = int(element)
+                if snapshot_id.strip():
+                    args["snapshot_id"] = snapshot_id.strip()
             elif x >= 0 and y >= 0:
                 args.update({"x": int(x), "y": int(y)})
         elif selected == "key":

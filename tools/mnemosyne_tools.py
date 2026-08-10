@@ -44,6 +44,10 @@ _SECRET_NAME_FRAGMENTS = ("api_key", "apikey", "token", "password", "secret", "c
 _bridge: McpServerBridge | None = None
 
 
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
 def _venv_bin_candidates(name: str) -> list[Path]:
     # LEARN: sys.prefix reliably points at the active venv no matter how this
     # process was launched — unlike os.environ["PATH"], which does NOT include
@@ -52,9 +56,9 @@ def _venv_bin_candidates(name: str) -> list[Path]:
     # gateway/restart.py's self-respawn), as opposed to `uv run`, which injects
     # it. shutil.which() alone works in a dev shell but silently fails for the
     # real running gateway, which is exactly the bug this fixes.
-    subdir = "Scripts" if os.name == "nt" else "bin"
+    subdir = "Scripts" if _is_windows() else "bin"
     venv_bin = Path(sys.prefix) / subdir
-    if os.name == "nt":
+    if _is_windows():
         return [venv_bin / f"{name}.exe", venv_bin / name]
     return [venv_bin / name]
 

@@ -13,7 +13,7 @@ Kara is a local-first personal AI agent for CLI and Telegram. She combines confi
 - Search and fetch the web using SearXNG with Brave/DuckDuckGo fallbacks.
 - Read, search, and explicitly write local files inside configured filesystem roots.
 - Create/read/edit Word, Excel, and PowerPoint files without opening Microsoft Office.
-- Extract text from PDFs and images locally using PyMuPDF and Windows OCR.
+- Extract text from PDFs and images locally using PyMuPDF plus Windows OCR or Tesseract.
 - Inspect SQLite databases and Python source safely; run a bounded unittest suite only after approval.
 - Read email through Himalaya; sending is separately disabled by default.
 - Inspect Windows system/process/service/task/disk state without modifying it.
@@ -31,7 +31,7 @@ KaraSession ── provider chat + tool loop ── tool registry
      │                                      │
      ├── SQLite conversation state           ├── local files/documents/OCR
      ├── local brain + vector index          ├── web/email/GitHub/MCP
-     ├── scheduler                           └── Windows/computer inspection
+     ├── scheduler                           └── system/computer inspection
      └── optional Mnemosyne MCP
 ```
 
@@ -59,33 +59,139 @@ Kara’s built-in semantic search uses cached hybrid ranking: embeddings plus ke
 
 ## Requirements
 
-- Python **3.14+**
 - [uv](https://docs.astral.sh/uv/)
-- An Ollama setup or another configured chat provider
-- Windows 10/11 for Windows inventory, Windows OCR, and `cua-driver` desktop support
+- Python **3.14+** (`uv` can install and manage it)
+- One chat provider: local Ollama, Ollama Cloud, or OpenAI Codex OAuth
+- Optional: Windows 10/11, a supported Linux desktop, or macOS for `cua-driver` desktop support
+- Optional image OCR: built-in Windows OCR, or Tesseract (`tesseract-ocr` on Linux; `brew install tesseract` on macOS)
 
-## Setup
+## Quick start: clone and run Kara
+
+The repository is currently private, so cloning requires a GitHub account with access. The same commands will work without authentication if the repository is made public later.
+
+### 1. Clone the repository
+
+```shell
+git clone https://github.com/odaiameera/Kara-Personal-Agent.git
+cd Kara-Personal-Agent
+```
+
+GitHub CLI users can instead run:
+
+```shell
+gh repo clone odaiameera/Kara-Personal-Agent
+cd Kara-Personal-Agent
+```
+
+### 2. Install Python and dependencies
+
+Install `uv` using its [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/), then run:
+
+```shell
+uv python install 3.14
+uv sync
+```
+
+`uv sync` creates an isolated `.venv` and installs Kara's locked dependencies. You do not need to activate the environment; use `uv run ...` for commands below.
+
+### 3. Create your local configuration
+
+Linux/macOS:
+
+```shell
+cp .env.example .env
+```
+
+Windows PowerShell:
 
 ```powershell
-cd personal_agent
-uv sync
 Copy-Item .env.example .env
 ```
 
-Add at least one provider to `.env`, for example:
+`.env` is gitignored. Never commit it.
+
+### 4. Configure a model provider
+
+Choose one of these options.
+
+#### Option A: local Ollama
+
+Install [Ollama](https://ollama.com/download), make sure its server is running, and download a chat model plus the default embedding model:
+
+```shell
+ollama pull qwen3:8b
+ollama pull nomic-embed-text
+```
+
+Set these values in `.env`:
 
 ```env
-OLLAMA_API_KEY=your_ollama_api_key
+OLLAMA_API_KEY=
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=qwen3:8b
+EMBED_MODEL=nomic-embed-text
+```
+
+You can substitute another Ollama model that supports the tools and context size you need.
+
+#### Option B: Ollama Cloud
+
+```env
+OLLAMA_API_KEY=your_real_ollama_api_key
+OLLAMA_HOST=https://ollama.com
 OLLAMA_MODEL=gpt-oss:120b
+EMBED_MODEL=nomic-embed-text
 ```
 
-Run the CLI:
+#### Option C: OpenAI Codex OAuth
 
-```powershell
-uv run agent.py
+Complete the device login, then select the provider from Kara with `/provider openai-codex`:
+
+```shell
+uv run python codex_auth.py login
 ```
 
-For local Ollama, leave `OLLAMA_API_KEY` blank and run an Ollama server locally (default `http://localhost:11434`). Install any required local chat and embedding models separately.
+### 5. Start the CLI
+
+```shell
+uv run python agent.py
+```
+
+On first use Kara creates her private runtime state under `brain/`. Type `/providers` to inspect available providers, `/models` to list models, and `/new` to begin a fresh conversation without deleting long-term memory.
+
+### 6. Optional: connect Telegram
+
+1. Create a bot with Telegram's `@BotFather` and copy its token.
+2. Message `@userinfobot` to find your numeric Telegram user ID.
+3. Add both values to `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_ALLOWED_USER_IDS=123456789
+```
+
+Multiple allowed users can be comma-separated. Start the gateway in the foreground first so configuration errors are visible:
+
+```shell
+uv run python gateway.py
+```
+
+Only IDs in `TELEGRAM_ALLOWED_USER_IDS` can use the bot.
+
+### 7. Optional: enable desktop control and OCR
+
+- Install [Cua Driver](https://cua.ai/docs/how-to-guides/driver/install), then run `cua-driver doctor` to verify desktop and accessibility permissions. Kara's CLI and Telegram features work without it.
+- On Linux, install Tesseract with your distribution package manager (for example `sudo apt install tesseract-ocr` on Debian/Ubuntu).
+- On macOS, install Tesseract with `brew install tesseract`; Cua Driver also needs Accessibility and Screen Recording permission.
+- Windows uses its built-in OCR engine and does not require Tesseract.
+
+### 8. Verify the installation
+
+```shell
+uv run python -m unittest discover -s tests
+```
+
+Real OCR integration tests skip when no supported OCR backend is installed.
 
 ## Providers and models
 
@@ -102,7 +208,7 @@ Telegram/CLI commands include:
 
 Switching provider or model resets only the current chat context, not the brain.
 
-## 24/7 Telegram gateway
+## 24/7 Telegram gateway on Windows
 
 Install the Windows logon task:
 
@@ -159,7 +265,7 @@ Office files are manipulated directly as OOXML packages; Microsoft Office does n
 
 SQLite access is read-only. Python inspection never executes source. `run_python_tests` is restricted to fixed `unittest discover` inside configured write roots and requires exact two-turn approval.
 
-### Windows inspection and desktop use
+### System inspection and cross-platform desktop use
 
 Read-only Windows inventory tools:
 
@@ -171,7 +277,11 @@ Read-only Windows inventory tools:
 
 They use fixed PowerShell inventory scripts and cannot stop processes, change services, edit tasks, or alter disks.
 
-`computer_use` uses the installed `cua-driver` to list apps/windows and capture accessibility elements. Clicks, typing, keys, scrolling, focus, and foregrounding require a fresh approval token bound to the exact target process/window/title. Keyboard actions verify the approved target is foreground before input is delivered; if Windows refuses activation, the action fails closed rather than acting on another window.
+Windows inventory remains Windows-only. `computer_use` is cross-platform through the installed `cua-driver` on Windows, Linux, and macOS. It lists apps/windows and captures accessibility elements; current driver snapshots expose opaque `element_token` handles and `snapshot_id` values, which should be preferred over a bare element index.
+
+Clicks, typing, keys, scrolling, focus, and foregrounding require a fresh approval token bound to the exact target process/window/title. Input is delivered in the background first. Kara retries the same action with action-scoped foreground delivery only when the driver reports `background_unavailable` or a verified `suspected_noop` with a `foreground` recommendation. An `unverifiable` result is never repeated automatically, avoiding duplicate clicks or text. Persistent `bring_to_front` remains an explicit, separately approved action.
+
+Linux requires a supported X11/Wayland accessibility and input setup. macOS requires Accessibility and Screen Recording permission for CuaDriver; inspect status with `cua-driver permissions status`. Run `cua-driver doctor` on any platform to diagnose missing permissions or desktop backends.
 
 ### Scheduling and live time
 

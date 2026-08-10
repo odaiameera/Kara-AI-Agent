@@ -51,7 +51,7 @@ class BinResolutionTests(unittest.TestCase):
             exe.write_bytes(b"")
 
             with patch.object(mnemosyne_tools.sys, "prefix", str(fake_prefix)), patch.object(
-                mnemosyne_tools.os, "name", "nt"
+                mnemosyne_tools, "_is_windows", return_value=True
             ), patch.object(mnemosyne_tools.shutil, "which", return_value=None):
                 resolved = mnemosyne_tools._resolved_bin()
 

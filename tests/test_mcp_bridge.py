@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import tempfile
 import time
@@ -73,6 +74,15 @@ class McpBridgeFailureTests(unittest.TestCase):
         with self.assertRaises(McpBridgeError):
             bridge.list_tools()
         self.assertLess(time.monotonic() - start, 10.0)
+
+    def test_stop_is_safe_after_failed_startup_loop_has_closed(self) -> None:
+        bridge = McpServerBridge("unused", [])
+        loop = asyncio.new_event_loop()
+        bridge._loop = loop
+        bridge._stop_event = asyncio.Event()
+        loop.close()
+
+        bridge.stop()
 
 
 class ExtractTextTests(unittest.TestCase):

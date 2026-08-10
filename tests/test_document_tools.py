@@ -10,6 +10,10 @@ from tools import document_tools
 
 
 class ImageOcrTests(unittest.TestCase):
+    @unittest.skipUnless(
+        document_tools._ocr_backend_available(),
+        "No supported local OCR backend is installed",
+    )
     def test_ocr_image_extracts_text_from_real_png(self) -> None:
         from PIL import Image, ImageDraw, ImageFont
 
@@ -49,6 +53,26 @@ class ImageOcrTests(unittest.TestCase):
         self.assertNotIn("KARA_TEST_SECRET", kwargs["env"])
         self.assertEqual(kwargs["env"]["KARA_OCR_IMAGE_PATH"], r"C:\Temp\scan.png")
 
+    def test_tesseract_ocr_uses_resolved_executable_and_minimal_environment(self) -> None:
+        completed = MagicMock(returncode=0, stdout="safe text\n", stderr="")
+        with patch.dict("os.environ", {"KARA_TEST_SECRET": "must-not-leak"}), patch.object(
+            document_tools.shutil, "which", return_value="/usr/bin/tesseract"
+        ), patch.object(document_tools.subprocess, "run", return_value=completed) as run:
+            text = document_tools._tesseract_ocr_text(Path("/tmp/scan.png"))
+
+        self.assertEqual(text, "safe text")
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], ["/usr/bin/tesseract", "/tmp/scan.png", "stdout"])
+        self.assertNotIn("KARA_TEST_SECRET", kwargs["env"])
+
+    def test_platform_ocr_dispatches_to_tesseract_off_windows(self) -> None:
+        with patch.object(document_tools, "_is_windows", return_value=False), patch.object(
+            document_tools, "_tesseract_ocr_text", return_value="portable text"
+        ) as tesseract:
+            text, engine = document_tools._local_ocr_text(Path("/tmp/scan.png"))
+        self.assertEqual((text, engine), ("portable text", "tesseract"))
+        tesseract.assert_called_once()
+
     def test_ocr_image_enforces_file_and_pixel_limits_before_ocr(self) -> None:
         from PIL import Image
 
@@ -59,11 +83,11 @@ class ImageOcrTests(unittest.TestCase):
 
             with patch.object(document_tools.config, "FILE_READ_ROOTS", (root,)), patch.object(
                 document_tools, "MAX_IMAGE_PIXELS", 100
-            ), patch.object(document_tools, "_windows_ocr_text") as ocr:
+            ), patch.object(document_tools, "_local_ocr_text") as ocr:
                 pixel_result = json.loads(document_tools.ocr_image(str(target)))
             with patch.object(document_tools.config, "FILE_READ_ROOTS", (root,)), patch.object(
                 document_tools, "MAX_DOCUMENT_BYTES", 1
-            ), patch.object(document_tools, "_windows_ocr_text") as byte_ocr:
+            ), patch.object(document_tools, "_local_ocr_text") as byte_ocr:
                 byte_result = json.loads(document_tools.ocr_image(str(target)))
 
         self.assertFalse(pixel_result["ok"], pixel_result)
@@ -81,6 +105,10 @@ class ImageOcrTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 document_tools._positive_float_setting("KARA_TEST_LIMIT", 1, maximum=10)
 
+    @unittest.skipUnless(
+        document_tools._ocr_backend_available(),
+        "No supported local OCR backend is installed",
+    )
     def test_ocr_image_reads_small_document_text(self) -> None:
         from PIL import Image, ImageDraw, ImageFont
 
@@ -125,6 +153,10 @@ class PdfReadingTests(unittest.TestCase):
         self.assertEqual(result["pages"][0]["method"], "embedded_text")
         self.assertIn("parking brake performance 14 percent", result["pages"][0]["text"])
 
+    @unittest.skipUnless(
+        document_tools._ocr_backend_available(),
+        "No supported local OCR backend is installed",
+    )
     def test_read_pdf_ocrs_page_with_only_incidental_embedded_text(self) -> None:
         import pymupdf
         from PIL import Image, ImageDraw, ImageFont
@@ -168,7 +200,7 @@ class PdfReadingTests(unittest.TestCase):
             document.close()
 
             with patch.object(document_tools.config, "FILE_READ_ROOTS", (root,)), patch.object(
-                document_tools, "_windows_ocr_text", return_value=""
+                document_tools, "_local_ocr_text", return_value=("", "tesseract")
             ):
                 result = json.loads(document_tools._read_pdf_local(str(pdf_path)))
 
@@ -362,6 +394,10 @@ class PdfReadingTests(unittest.TestCase):
         self.assertEqual(result["pages"][0]["method"], "ocr_failed")
         self.assertIn("pixel limit", result["pages"][0]["warning"].casefold())
 
+    @unittest.skipUnless(
+        document_tools._ocr_backend_available(),
+        "No supported local OCR backend is installed",
+    )
     def test_read_pdf_ocrs_image_only_page(self) -> None:
         import pymupdf
         from PIL import Image, ImageDraw, ImageFont

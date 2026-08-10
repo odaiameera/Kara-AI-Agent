@@ -137,8 +137,15 @@ class McpServerBridge:
 
     def stop(self) -> None:
         """Signal the background loop to close the session and exit its thread."""
-        if self._loop is not None and self._stop_event is not None:
-            self._loop.call_soon_threadsafe(self._stop_event.set)
+        loop = self._loop
+        stop_event = self._stop_event
+        if loop is not None and stop_event is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(stop_event.set)
+            except RuntimeError:
+                # Startup failure can close the loop between is_closed() and
+                # call_soon_threadsafe(). Stopping an already-dead bridge is done.
+                pass
 
 
 def extract_text(result: Any) -> str:
