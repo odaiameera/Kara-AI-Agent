@@ -1,7 +1,7 @@
 [project]
 name = "personal-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local-first personal AI agent with memory, tools, scheduling, Telegram, and safety-gated desktop automation"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

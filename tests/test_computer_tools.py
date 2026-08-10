@@ -53,13 +53,13 @@ class ComputerToolsTests(unittest.TestCase):
         self.assertEqual(result["running_apps"][0]["name"], "Notepad")
 
     def test_approval_requires_exact_later_user_reply(self) -> None:
-        token = self._request_token("click", CHATGPT, app="ChatGPT", element=4)
+        token = self._request_token("click", CHATGPT, app="ChatGPT", element=4, snapshot_id="s1234abcd")
 
         # The model cannot reuse a token in the original user-authored turn.
         with patch.object(computer_tools, "_resolve_target", return_value=dict(CHATGPT)):
             same_turn = json.loads(
                 computer_tools.computer_use(
-                    "click", app="ChatGPT", element=4, approval_token=token
+                    "click", app="ChatGPT", element=4, snapshot_id="s1234abcd", approval_token=token
                 )
             )
         self.assertEqual(same_turn["error"]["code"], "approval_not_confirmed")
@@ -68,7 +68,7 @@ class ComputerToolsTests(unittest.TestCase):
         with patch.object(computer_tools, "_resolve_target", return_value=dict(CHATGPT)):
             inexact = json.loads(
                 computer_tools.computer_use(
-                    "click", app="ChatGPT", element=4, approval_token=token
+                    "click", app="ChatGPT", element=4, snapshot_id="s1234abcd", approval_token=token
                 )
             )
         self.assertEqual(inexact["error"]["code"], "approval_not_confirmed")
@@ -118,15 +118,11 @@ class ComputerToolsTests(unittest.TestCase):
             target = computer_tools._resolve_target("ChatGPT", 0, 0)
         self.assertEqual(target["window_id"], 20)
 
-    def test_native_window_already_foreground_sends_key_without_activation(self) -> None:
+    def test_keyboard_input_uses_background_delivery_first(self) -> None:
         token = self._request_token("key", EXPLORER, app="Explorer", key="f5")
         computer_tools.set_computer_request_context("s1", f"approve {token}")
         with patch.object(computer_tools, "_resolve_target", return_value=dict(EXPLORER)), patch.object(
             computer_tools, "_verify_bound_target", return_value={"ok": True}
-        ), patch.object(
-            computer_tools,
-            "_foreground_window",
-            return_value={"pid": 50, "window_id": 60},
         ), patch.object(
             computer_tools, "_call_driver", return_value={"success": True}
         ) as driver:
@@ -138,33 +134,22 @@ class ComputerToolsTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         driver.assert_called_once()
         self.assertEqual(driver.call_args.args[0], "press_key")
-        self.assertEqual(driver.call_args.args[1]["delivery_mode"], "foreground")
+        self.assertEqual(driver.call_args.args[1]["delivery_mode"], "background")
 
-    def test_background_chatgpt_alt_f4_activates_then_uses_foreground_hotkey(self) -> None:
+    def test_suspected_noop_escalates_same_hotkey_to_foreground_without_persistent_focus(self) -> None:
         token = self._request_token(
             "key", CHATGPT, app="ChatGPT", key="f4", modifiers=["alt"]
         )
         computer_tools.set_computer_request_context("s1", f"approve {token}")
-        foregrounds = [
-            {"pid": 999, "window_id": 888},
-            {"pid": 10, "window_id": 20},
-        ]
-
         def driver_call(tool: str, args: dict, timeout: float = 35.0) -> dict:
-            if tool == "bring_to_front":
-                return {"raised": True, "landed_on_target": True, "now_fg_hwnd": 20}
             if tool == "hotkey":
+                if args["delivery_mode"] == "background":
+                    return {"effect": "suspected_noop", "escalation": {"recommended": "foreground"}}
                 return {"success": True}
             self.fail(f"Unexpected driver tool: {tool}")
 
         with patch.object(computer_tools, "_resolve_target", return_value=dict(CHATGPT)), patch.object(
             computer_tools, "_verify_bound_target", return_value={"ok": True}
-        ), patch.object(
-            computer_tools, "_foreground_window", side_effect=foregrounds
-        ), patch.object(
-            computer_tools, "_current_window_identity", return_value=dict(CHATGPT)
-        ), patch.object(
-            computer_tools.time, "sleep"
         ), patch.object(
             computer_tools, "_call_driver", side_effect=driver_call
         ) as driver:
@@ -179,15 +164,14 @@ class ComputerToolsTests(unittest.TestCase):
             )
 
         self.assertTrue(payload["ok"])
-        self.assertEqual([call.args[0] for call in driver.call_args_list], ["bring_to_front", "hotkey"])
-        bring_args = driver.call_args_list[0].args[1]
-        self.assertEqual(bring_args, {"pid": 10, "window_id": 20})
+        self.assertEqual([call.args[0] for call in driver.call_args_list], ["hotkey", "hotkey"])
+        self.assertEqual(driver.call_args_list[0].args[1]["delivery_mode"], "background")
         hotkey_args = driver.call_args_list[1].args[1]
         self.assertEqual(hotkey_args["keys"], ["alt", "f4"])
         self.assertEqual(hotkey_args["delivery_mode"], "foreground")
         self.assertEqual((hotkey_args["pid"], hotkey_args["window_id"]), (10, 20))
 
-    def test_failure_to_foreground_sends_no_keyboard_input(self) -> None:
+    def test_unverifiable_keyboard_delivery_is_not_retried(self) -> None:
         token = self._request_token("key", CHATGPT, app="ChatGPT", key="f4", modifiers=["alt"])
         computer_tools.set_computer_request_context("s1", f"approve {token}")
 
@@ -195,16 +179,8 @@ class ComputerToolsTests(unittest.TestCase):
             computer_tools, "_verify_bound_target", return_value={"ok": True}
         ), patch.object(
             computer_tools,
-            "_foreground_window",
-            side_effect=[{"pid": 999, "window_id": 888}, {"pid": 999, "window_id": 888}],
-        ), patch.object(
-            computer_tools, "_current_window_identity", return_value=dict(CHATGPT)
-        ), patch.object(
-            computer_tools.time, "sleep"
-        ), patch.object(
-            computer_tools,
             "_call_driver",
-            return_value={"raised": True, "landed_on_target": False, "now_fg_hwnd": 888},
+            return_value={"effect": "unverifiable", "escalation": {"recommended": "foreground"}},
         ) as driver:
             payload = json.loads(
                 computer_tools.computer_use(
@@ -216,9 +192,9 @@ class ComputerToolsTests(unittest.TestCase):
                 )
             )
 
-        self.assertFalse(payload["ok"])
-        self.assertEqual(payload["error"]["code"], "foreground_activation_failed")
-        self.assertEqual([call.args[0] for call in driver.call_args_list], ["bring_to_front"])
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["driver"]["effect"], "unverifiable")
+        self.assertEqual([call.args[0] for call in driver.call_args_list], ["hotkey"])
 
     def test_explicit_bring_to_front_is_approval_gated_verified_and_one_use(self) -> None:
         token = self._request_token("bring_to_front", CHATGPT, app="ChatGPT")
@@ -279,7 +255,7 @@ class ComputerToolsTests(unittest.TestCase):
         driver.assert_not_called()
 
     def test_native_explorer_click_stays_background(self) -> None:
-        token = self._request_token("click", EXPLORER, app="Explorer", element=3)
+        token = self._request_token("click", EXPLORER, app="Explorer", element=3, snapshot_id="s1234abcd")
         computer_tools.set_computer_request_context("s1", f"approve {token}")
         with patch.object(computer_tools, "_resolve_target", return_value=dict(EXPLORER)), patch.object(
             computer_tools, "_verify_bound_target", return_value={"ok": True}
@@ -290,7 +266,7 @@ class ComputerToolsTests(unittest.TestCase):
         ) as driver:
             payload = json.loads(
                 computer_tools.computer_use(
-                    "click", app="Explorer", element=3, approval_token=token
+                    "click", app="Explorer", element=3, snapshot_id="s1234abcd", approval_token=token
                 )
             )
         self.assertTrue(payload["ok"])
@@ -298,15 +274,9 @@ class ComputerToolsTests(unittest.TestCase):
         self.assertEqual(driver.call_args.args[0], "click")
         self.assertEqual(driver.call_args.args[1]["delivery_mode"], "background")
 
-    def test_chromium_background_click_escalates_same_target_with_same_approval(self) -> None:
-        token = self._request_token("click", CHATGPT, app="ChatGPT", element=4)
+    def test_background_unavailable_escalates_same_action_without_persistent_focus(self) -> None:
+        token = self._request_token("click", CHATGPT, app="ChatGPT", element=4, snapshot_id="s1234abcd")
         computer_tools.set_computer_request_context("s1", f"approve {token}")
-        foreground = {
-            "ok": True,
-            "verified": True,
-            "activated": True,
-            "final": {"pid": 10, "window_id": 20},
-        }
 
         def driver_call(tool: str, args: dict, timeout: float = 35.0) -> dict:
             if len(driver.call_args_list) == 1:
@@ -319,21 +289,76 @@ class ComputerToolsTests(unittest.TestCase):
         with patch.object(computer_tools, "_resolve_target", return_value=dict(CHATGPT)), patch.object(
             computer_tools, "_verify_bound_target", return_value={"ok": True}
         ), patch.object(
-            computer_tools, "_ensure_foreground", return_value=foreground
+            computer_tools, "_ensure_foreground"
         ) as ensure, patch.object(
             computer_tools, "_call_driver", side_effect=driver_call
         ) as driver:
             payload = json.loads(
                 computer_tools.computer_use(
-                    "click", app="ChatGPT", element=4, approval_token=token
+                    "click", app="ChatGPT", element=4, snapshot_id="s1234abcd", approval_token=token
                 )
             )
         self.assertTrue(payload["ok"])
-        ensure.assert_called_once_with(CHATGPT)
+        ensure.assert_not_called()
         self.assertEqual([call.args[0] for call in driver.call_args_list], ["click", "click"])
         self.assertEqual(driver.call_args_list[0].args[1]["delivery_mode"], "background")
         self.assertEqual(driver.call_args_list[1].args[1]["delivery_mode"], "foreground")
         self.assertEqual(driver.call_args_list[1].args[1]["window_id"], 20)
+
+    def test_capture_snapshot_can_be_bound_to_element_action(self) -> None:
+        token = self._request_token(
+            "click", CHATGPT, app="ChatGPT", element=4, snapshot_id="s1234abcd"
+        )
+        computer_tools.set_computer_request_context("s1", f"approve {token}")
+        with patch.object(computer_tools, "_resolve_target", return_value=dict(CHATGPT)), patch.object(
+            computer_tools, "_verify_bound_target", return_value={"ok": True}
+        ), patch.object(
+            computer_tools, "_call_driver", return_value={"effect": "confirmed"}
+        ) as driver:
+            payload = json.loads(
+                computer_tools.computer_use(
+                    "click",
+                    app="ChatGPT",
+                    element=4,
+                    snapshot_id="s1234abcd",
+                    approval_token=token,
+                )
+            )
+        self.assertTrue(payload["ok"])
+        self.assertEqual(driver.call_args.args[1]["snapshot_id"], "s1234abcd")
+
+    def test_bare_element_index_is_rejected_before_approval(self) -> None:
+        computer_tools.set_computer_request_context("s1", "click it")
+        payload = json.loads(computer_tools.computer_use("click", element=4))
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "invalid_arguments")
+        self.assertIn("snapshot_id", payload["error"]["message"])
+
+    def test_element_token_is_forwarded_without_snapshot_id(self) -> None:
+        token = self._request_token(
+            "click", CHATGPT, app="ChatGPT", element_token="opaque-element-token"
+        )
+        computer_tools.set_computer_request_context("s1", f"approve {token}")
+        with patch.object(computer_tools, "_verify_bound_target", return_value={"ok": True}), patch.object(
+            computer_tools, "_call_driver", return_value={"effect": "confirmed"}
+        ) as driver:
+            payload = json.loads(
+                computer_tools.computer_use(
+                    "click",
+                    app="ChatGPT",
+                    element_token="opaque-element-token",
+                    approval_token=token,
+                )
+            )
+        self.assertTrue(payload["ok"])
+        self.assertEqual(driver.call_args.args[1]["element_token"], "opaque-element-token")
+        self.assertNotIn("snapshot_id", driver.call_args.args[1])
+
+    def test_modifier_aliases_cover_windows_linux_and_macos_names(self) -> None:
+        self.assertEqual(
+            computer_tools._normalized_modifiers(["Control", "Windows", "Command", "Option"]),
+            ["ctrl", "win", "cmd", "alt"],
+        )
 
 
 if __name__ == "__main__":
