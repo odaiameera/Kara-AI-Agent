@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -55,6 +56,13 @@ class SharedAuthStoreTests(unittest.TestCase):
         with patch.object(config, "BRAIN_DIR", nested):
             auth_store.write_provider("github", {"tokens": {"access_token": "x"}})
             self.assertTrue((nested / "auth.json").exists())
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits are not Windows ACLs")
+    def test_auth_store_is_owner_read_write_only(self) -> None:
+        auth_store.write_provider("github", {"tokens": {"access_token": "secret"}})
+
+        mode = (self.root / "auth.json").stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600)
 
 
 if __name__ == "__main__":

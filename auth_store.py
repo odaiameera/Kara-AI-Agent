@@ -68,7 +68,9 @@ def save_store(data: dict[str, Any]) -> None:
     path = auth_file()
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.chmod(0o600)
     tmp.replace(path)
+    path.chmod(0o600)
 
 
 def read_provider(provider_id: str) -> dict[str, Any] | None:
