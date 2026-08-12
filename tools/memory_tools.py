@@ -128,3 +128,21 @@ def search_memory(query: str, top_k: int = 5) -> str:
             snippet = snippet[:300] + "..."
         lines.append(f"- ({r['source']}) {r['title']}: {snippet}")
     return "\n".join(lines)
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "memory"
+
+TOOLS = [
+    core_memory_append,
+    core_memory_replace,
+    set_active_task,
+    save_learning,
+    search_memory,
+]
+
+SCHEDULED_SAFE = {
+    "search_memory",
+}

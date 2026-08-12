@@ -37,6 +37,14 @@ KaraSession ── provider chat + tool loop ── tool registry
 
 `kara.py` owns the main model → tool → model loop. Tool schemas are generated from Python function signatures and docstrings. Telegram handlers run blocking provider, SQLite, and tool work in worker threads so the event loop remains responsive.
 
+### Tool registry and on-demand loading
+
+Each module in `tools/` declares its own `TOOL_GROUP`, `TOOLS`, and `SCHEDULED_SAFE` set. `tools/registry.py` aggregates those declarations into the tool registry, the JSON schemas, and the scheduled-run allowlist, so adding a tool means editing one file.
+
+Groups are also the unit of loading. A session starts with the always-on groups — memory, web, file, and document — and reveals the rest when the request needs them, either from keywords in the message or when the model calls `activate_tool_group`. Exposing all 84 tools costs about 40KB of schema per request; a typical request now carries roughly 8.8KB. Once activated, a group stays available for the remainder of the session.
+
+Loading is a presentation filter only. Scheduled jobs are bounded by `allowed_tool_names`, which remains the execution boundary and is never widened by group activation.
+
 ## Local brain
 
 Everything private and persistent lives in `brain/` and is gitignored:

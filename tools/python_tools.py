@@ -311,3 +311,20 @@ def run_python_tests(
         )
     except (ValueError, PermissionError, OSError) as exc:
         return _error(f"Could not run Python tests: {exc}")
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "python"
+
+TOOLS = [
+    inspect_python_file,
+    validate_python_file,
+    run_python_tests,
+]
+
+SCHEDULED_SAFE = {
+    "inspect_python_file",
+    "validate_python_file",
+}

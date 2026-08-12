@@ -554,3 +554,23 @@ def read_office_file(path: str, max_items: int = 200) -> str:
         raise ValueError("Supported Office extensions are .docx, .xlsx, and .pptx.")
     except (ImportError, ValueError, PermissionError, OSError) as exc:
         return _error(f"Could not read Office file: {exc}")
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "office"
+
+TOOLS = [
+    read_office_file,
+    create_word_document,
+    append_word_text,
+    create_excel_workbook,
+    set_excel_cell,
+    create_powerpoint,
+    append_powerpoint_slide,
+]
+
+SCHEDULED_SAFE = {
+    "read_office_file",
+}

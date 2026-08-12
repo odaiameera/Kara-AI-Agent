@@ -485,3 +485,27 @@ def search_files(
     if len(matches) >= limit:
         suffix += "\n... (result limit reached)"
     return f"File search results for '{query}':\n" + "\n".join(matches[:limit]) + suffix
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "file"
+
+TOOLS = [
+    list_directory,
+    read_file,
+    write_file,
+    search_files,
+    file_info,
+    copy_file,
+    move_file,
+    replace_in_file,
+]
+
+SCHEDULED_SAFE = {
+    "list_directory",
+    "read_file",
+    "search_files",
+    "file_info",
+}

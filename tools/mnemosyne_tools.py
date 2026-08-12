@@ -267,3 +267,18 @@ def mnemosyne_call_tool(tool_name: str, arguments_json: str = "{}") -> str:
         return extract_text(result)
     except McpBridgeError as exc:
         return f"Error calling Mnemosyne tool '{tool_name}': {exc}"
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "mnemosyne"
+
+TOOLS = [
+    mnemosyne_status,
+    mnemosyne_remember,
+    mnemosyne_recall,
+    mnemosyne_call_tool,
+]
+
+SCHEDULED_SAFE: set[str] = set()

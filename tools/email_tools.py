@@ -401,3 +401,21 @@ def email_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "") ->
     if code != 0:
         return f"Error sending email: {err_out or out or 'unknown error'}"
     return out or f"Email sent to {to} with subject '{subject}'."
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "email"
+
+TOOLS = [
+    email_status,
+    email_list_mailboxes,
+    email_list_envelopes,
+    email_search,
+    email_read,
+    email_mark_seen,
+    email_send,
+]
+
+SCHEDULED_SAFE: set[str] = set()

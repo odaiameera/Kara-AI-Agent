@@ -3,7 +3,7 @@
 STUDY GUIDE
 -----------
 * Defines ``KaraSession`` — the heart of chat: messages, tools, provider, persistence.
-* Registers tool functions and builds JSON schemas the LLM uses to call them.
+* Pulls the tool registry and JSON schemas from ``tools.registry``.
 * Implements the tool loop: model reply → execute tools → feed results back → repeat.
 * Key concepts: classes, type aliases (``Callable``), ``**kwargs``, dict message format, properties.
 """
@@ -17,195 +17,14 @@ import ollama_client
 import providers
 import session_db
 import time_context
-import tool_schemas
-from tools.memory_tools import (
-    core_memory_append,
-    core_memory_replace,
-    set_active_task,
-    save_learning,
-    search_memory,
-)
-from tools.obsidian_tools import (
-    search_obsidian,
-    read_obsidian_note,
-    write_obsidian_note,
-)
-from tools.web_tools import web_search, web_fetch
-from tools.file_tools import (
-    list_directory,
-    read_file,
-    write_file,
-    search_files,
-    file_info,
-    copy_file,
-    move_file,
-    replace_in_file,
-)
-from tools.office_tools import (
-    read_office_file,
-    create_word_document,
-    append_word_text,
-    create_excel_workbook,
-    set_excel_cell,
-    create_powerpoint,
-    append_powerpoint_slide,
-)
-from tools.document_tools import ocr_image, read_pdf
-from tools.sql_tools import inspect_sqlite_database, query_sqlite_database
-from tools.python_tools import inspect_python_file, validate_python_file, run_python_tests
-from tools.computer_tools import computer_use, set_computer_request_context
-from tools.windows_tools import (
-    system_overview,
-    list_processes,
-    list_services,
-    list_scheduled_tasks,
-    disk_usage,
-)
-from tools.scheduler_tools import (
-    schedule_reminder,
-    schedule_agent_job,
-    list_scheduled_jobs,
-    pause_scheduled_job,
-    resume_scheduled_job,
-    delete_scheduled_job,
-    run_scheduled_job_now,
-)
-from tools.email_tools import (
-    email_status,
-    email_list_mailboxes,
-    email_list_envelopes,
-    email_search,
-    email_read,
-    email_mark_seen,
-    email_send,
-)
-from tools.github_tools import (
-    github_status,
-    github_search_repositories,
-    github_get_repository,
-    github_list_repository_contents,
-    github_read_repository_file,
-    github_search_code,
-    github_list_branches,
-    github_list_commits,
-    github_list_issues,
-    github_get_issue,
-    github_list_issue_comments,
-    github_search_issues,
-    github_list_pull_requests,
-    github_get_pull_request,
-    github_get_pull_request_diff,
-    github_list_pull_request_files,
-    github_list_workflow_runs,
-    github_get_workflow_run,
-    github_list_notifications,
-    github_create_issue,
-    github_comment_on_issue,
-    github_close_issue,
-    github_create_pull_request,
-    github_merge_pull_request,
-    github_star_repository,
-    git_clone_repository,
-    git_pull_repository,
-    git_push_changes,
-)
-from tools.mnemosyne_tools import (
-    mnemosyne_status,
-    mnemosyne_remember,
-    mnemosyne_recall,
-    mnemosyne_call_tool,
-)
+from tools import registry
+from tools.computer_tools import set_computer_request_context
 
-# LEARN: List of callable tool functions; the LLM sees their names via TOOL_SCHEMAS below.
-TOOLS = [
-    core_memory_append,
-    core_memory_replace,
-    set_active_task,
-    save_learning,
-    search_memory,
-    web_search,
-    web_fetch,
-    list_directory,
-    read_file,
-    write_file,
-    search_files,
-    file_info,
-    copy_file,
-    move_file,
-    replace_in_file,
-    read_office_file,
-    read_pdf,
-    ocr_image,
-    create_word_document,
-    append_word_text,
-    create_excel_workbook,
-    set_excel_cell,
-    create_powerpoint,
-    append_powerpoint_slide,
-    inspect_sqlite_database,
-    query_sqlite_database,
-    inspect_python_file,
-    validate_python_file,
-    run_python_tests,
-    computer_use,
-    system_overview,
-    list_processes,
-    list_services,
-    list_scheduled_tasks,
-    disk_usage,
-    schedule_reminder,
-    schedule_agent_job,
-    list_scheduled_jobs,
-    pause_scheduled_job,
-    resume_scheduled_job,
-    delete_scheduled_job,
-    run_scheduled_job_now,
-    email_status,
-    email_list_mailboxes,
-    email_list_envelopes,
-    email_search,
-    email_read,
-    email_mark_seen,
-    email_send,
-    github_status,
-    github_search_repositories,
-    github_get_repository,
-    github_list_repository_contents,
-    github_read_repository_file,
-    github_search_code,
-    github_list_branches,
-    github_list_commits,
-    github_list_issues,
-    github_get_issue,
-    github_list_issue_comments,
-    github_search_issues,
-    github_list_pull_requests,
-    github_get_pull_request,
-    github_get_pull_request_diff,
-    github_list_pull_request_files,
-    github_list_workflow_runs,
-    github_get_workflow_run,
-    github_list_notifications,
-    github_create_issue,
-    github_comment_on_issue,
-    github_close_issue,
-    github_create_pull_request,
-    github_merge_pull_request,
-    github_star_repository,
-    git_clone_repository,
-    git_pull_repository,
-    git_push_changes,
-    mnemosyne_status,
-    mnemosyne_remember,
-    mnemosyne_recall,
-    mnemosyne_call_tool,
-    search_obsidian,
-    read_obsidian_note,
-    write_obsidian_note,
-]
-# LEARN: Dict comprehension maps function __name__ → function for O(1) lookup during tool calls.
-TOOL_REGISTRY = {fn.__name__: fn for fn in TOOLS}
-TOOL_SCHEMAS = tool_schemas.build_tools(TOOLS)
+# Tool surface comes from tools/registry.py, which aggregates the TOOL_GROUP /
+# TOOLS / SCHEDULED_SAFE declarations each tools module makes about itself.
+TOOLS = registry.ALL_TOOLS
+TOOL_REGISTRY = registry.TOOL_REGISTRY
+TOOL_SCHEMAS = registry.TOOL_SCHEMAS
 
 # LEARN: Type alias — documents that callbacks take (tool_name, args_dict) and return nothing.
 ToolCallback = Callable[[str, dict], None]
@@ -227,6 +46,7 @@ def get_system_instruction(channel: str = "cli") -> str:
 
 INSTRUCTIONS:
 You manage your own memory, which lives in your local brain directory.
+- Your tools load on demand. Memory, web, file, and document tools are always present; GitHub, email, Office, desktop, Windows, SQLite, Python, scheduler, Mnemosyne, and Obsidian tools load when the request needs them. If a capability described below has no matching tool in front of you, call `activate_tool_group` with the group name and then proceed. Do not tell the user a capability is missing without trying this first.
 - Core memory (above) is always visible. When you learn a durable fact about the user or yourself, store it with `core_memory_append` (or fix it with `core_memory_replace`). Use `set_active_task` when you start or finish a task.
 - For richer facts, decisions, or preferences worth keeping long-term, use `save_learning`.
 - To recall things from past conversations or saved learnings, use `search_memory` (semantic search over your sessions and learnings). Do this whenever the user refers to something from before.
@@ -267,6 +87,9 @@ class KaraSession:
         self.allowed_tool_names = (
             frozenset(allowed_tool_names) if allowed_tool_names is not None else None
         )
+        # Tool groups currently visible to the model. Starts at the always-on set
+        # and grows as the conversation needs more; never shrinks within a session.
+        self.active_groups: set[str] = set(registry.ALWAYS_ON)
 
         if not self.provider.has_credentials:
             raise RuntimeError(
@@ -358,14 +181,52 @@ class KaraSession:
         self._reset_messages()
         return f"New conversation started. Model: {self.model}"
 
-    def _chat(self, *, with_tools: bool = True) -> dict[str, Any]:
-        tools = TOOL_SCHEMAS
+    def activate_groups(self, groups: set[str] | frozenset[str]) -> set[str]:
+        """Reveal tool groups to the model. Returns the groups newly activated."""
+        wanted = {g for g in groups if g in registry.GROUPS}
+        added = wanted - self.active_groups
+        self.active_groups |= added
+        return added
+
+    def _activate_tool_group(self, group: str = "", **_ignored: Any) -> str:
+        """Execute the activate_tool_group meta-tool for this session."""
+        name = str(group or "").strip().lower()
+        if name not in registry.GROUPS:
+            available = ", ".join(sorted(registry.ON_DEMAND_GROUPS))
+            return f"Error: unknown tool group '{group}'. Available groups: {available}."
+
+        # Belt and braces: a restricted session must never activate its way past
+        # its allowlist. _chat already ignores active_groups when the allowlist is
+        # set, and handle_message rejects disallowed calls before reaching here.
         if self.allowed_tool_names is not None:
-            tools = [
+            visible = [n for n in registry.GROUPS[name] if n in self.allowed_tool_names]
+            if not visible:
+                return (
+                    f"Error: tool group '{name}' is not available in this session."
+                )
+            return f"Group '{name}' is available: {', '.join(visible)}."
+
+        self.activate_groups({name})
+        return (
+            f"Loaded tool group '{name}'. Now available: "
+            f"{', '.join(registry.GROUPS[name])}."
+        )
+
+    def _visible_schemas(self) -> list[dict[str, Any]]:
+        """Tool schemas this request should expose to the model."""
+        if self.allowed_tool_names is not None:
+            # A restricted session (scheduled runs) is already down to a handful
+            # of tools, so group gating would add risk without saving tokens. The
+            # allowlist is the execution boundary and stays the only filter here.
+            return [
                 item
                 for item in TOOL_SCHEMAS
                 if item["function"]["name"] in self.allowed_tool_names
             ]
+        return registry.schemas_for_groups(self.active_groups)
+
+    def _chat(self, *, with_tools: bool = True) -> dict[str, Any]:
+        tools = self._visible_schemas() if with_tools else None
         request_messages = [dict(message) for message in self.messages]
         runtime_clock = time_context.build_runtime_time_context()
         system_index = next(
@@ -399,6 +260,12 @@ class KaraSession:
         session_db.clear_interrupted(self.session_key)
         memory_store.log_turn(self.session_path, "You", user_input)
 
+        # Cheap keyword pre-activation. Anything it misses, the model can still
+        # reach through activate_tool_group, so a miss costs a round trip and
+        # never a capability.
+        if self.allowed_tool_names is None:
+            self.activate_groups(registry.groups_for_text(user_input))
+
         user_msg = {"role": "user", "content": user_input}
         self.messages.append(user_msg)
         self._persist(user_msg)
@@ -429,6 +296,8 @@ class KaraSession:
                     and func_name not in self.allowed_tool_names
                 ):
                     result = f"Error: Tool {func_name} is not allowed in this session."
+                elif func_name == registry.ACTIVATE_TOOL:
+                    result = self._activate_tool_group(**args)
                 elif (fn := TOOL_REGISTRY.get(func_name)) is None:
                     result = f"Error: Tool {func_name} not found."
                 else:

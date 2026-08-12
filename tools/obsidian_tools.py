@@ -113,3 +113,20 @@ def write_obsidian_note(file_path: str, content: str, overwrite: bool = False) -
         return f"Successfully appended to note at '{file_path}'."
     except Exception as e:
         return f"Error writing to note: {str(e)}"
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "obsidian"
+
+TOOLS = [
+    search_obsidian,
+    read_obsidian_note,
+    write_obsidian_note,
+]
+
+SCHEDULED_SAFE = {
+    "search_obsidian",
+    "read_obsidian_note",
+}
