@@ -55,6 +55,10 @@ def handle_command(session: KaraSession, text: str) -> str | None:
             return session.switch_provider(provider_id, model)
         except Exception as e:
             return f"Could not switch provider: {e}"
+    if lower == "/stop":
+        # On Telegram /stop is handled by its own handler so it can reach a turn
+        # that is still running. Reaching it here means nothing was in flight.
+        return "Nothing is running."
     if lower == "/new":
         return session.reset_conversation()
     if lower == "/restart":

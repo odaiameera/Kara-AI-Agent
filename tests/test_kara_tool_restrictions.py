@@ -4,41 +4,20 @@ import unittest
 from unittest.mock import Mock, patch
 
 import kara
-from provider_base import ChatResult, ToolCall
+from provider_base import ChatResult
+from tests.support import FakeProvider as _FakeProvider
+from tests.support import make_session, tool_turn as _tool_turn
 from tools import registry
-
-
-def _tool_turn(name: str, arguments: dict, call_id: str = "call-1") -> ChatResult:
-    return ChatResult(
-        tool_calls=(ToolCall(id=call_id, name=name, arguments=arguments),),
-        finish_reason="tool_calls",
-    )
-
-
-class _FakeProvider:
-    def __init__(self, responses=None) -> None:
-        self.responses = list(responses or [])
-        self.tool_batches: list[list[dict] | None] = []
-
-    def chat(self, model, messages, tools=None):
-        self.tool_batches.append(tools)
-        if self.responses:
-            return self.responses.pop(0)
-        return ChatResult(content="ok")
 
 
 class KaraToolRestrictionTests(unittest.TestCase):
     def _session(self, provider: _FakeProvider, allowed: set[str]):
-        session = kara.KaraSession.__new__(kara.KaraSession)
-        session.session_key = "scheduled:test"
-        session.channel = "scheduled"
-        session.model = "test-model"
-        session.provider = provider
-        session.messages = []
-        session.allowed_tool_names = frozenset(allowed)
-        session.active_groups = set(registry.ALWAYS_ON)
-        session._persist = Mock()
-        return session
+        return make_session(
+            provider,
+            session_key="scheduled:test",
+            channel="scheduled",
+            allowed_tool_names=allowed,
+        )
 
     def test_chat_exposes_only_explicitly_allowed_tools(self) -> None:
         provider = _FakeProvider()
@@ -95,16 +74,7 @@ class KaraToolRestrictionTests(unittest.TestCase):
 
 class KaraToolGatingTests(unittest.TestCase):
     def _session(self, provider: _FakeProvider):
-        session = kara.KaraSession.__new__(kara.KaraSession)
-        session.session_key = "cli:test"
-        session.channel = "cli"
-        session.model = "test-model"
-        session.provider = provider
-        session.messages = []
-        session.allowed_tool_names = None
-        session.active_groups = set(registry.ALWAYS_ON)
-        session._persist = Mock()
-        return session
+        return make_session(provider)
 
     def _run(self, session, text: str) -> None:
         with (

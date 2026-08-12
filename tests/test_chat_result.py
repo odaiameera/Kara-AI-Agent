@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import kara
+from tests.support import make_session
 from provider_base import (
     ChatResult,
     ProviderError,
@@ -14,7 +15,6 @@ from provider_base import (
     parse_tool_arguments,
     tool_calls_from_openai_shape,
 )
-from tools import registry
 
 
 class ArgumentParsingTests(unittest.TestCase):
@@ -129,15 +129,7 @@ class PhantomUserMessageTests(unittest.TestCase):
                 # Exactly the shape that used to become `{}` and then a user turn.
                 return chat_result_from_ollama({"unexpected": True})
 
-        session = kara.KaraSession.__new__(kara.KaraSession)
-        session.session_key = "cli:test"
-        session.channel = "cli"
-        session.model = "m"
-        session.provider = _BrokenProvider()
-        session.messages = []
-        session.allowed_tool_names = None
-        session.active_groups = set(registry.ALWAYS_ON)
-        session._persist = Mock()
+        session = make_session(_BrokenProvider())
 
         with (
             patch.object(kara, "set_computer_request_context"),
@@ -155,15 +147,7 @@ class PhantomUserMessageTests(unittest.TestCase):
             def chat(self, model, messages, tools=None):
                 return ChatResult(content="")
 
-        session = kara.KaraSession.__new__(kara.KaraSession)
-        session.session_key = "cli:test"
-        session.channel = "cli"
-        session.model = "m"
-        session.provider = _SilentProvider()
-        session.messages = []
-        session.allowed_tool_names = None
-        session.active_groups = set(registry.ALWAYS_ON)
-        session._persist = Mock()
+        session = make_session(_SilentProvider())
 
         with (
             patch.object(kara, "set_computer_request_context"),

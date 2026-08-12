@@ -9,8 +9,12 @@ STUDY GUIDE
 """
 from __future__ import annotations
 
+import json
+import threading
+import time
 from typing import Any, Callable
 
+import config
 import memory_store
 import models
 import providers
@@ -28,6 +32,90 @@ TOOL_SCHEMAS = registry.TOOL_SCHEMAS
 
 # LEARN: Type alias — documents that callbacks take (tool_name, args_dict) and return nothing.
 ToolCallback = Callable[[str, dict], None]
+
+
+class TurnStopped(Exception):
+    """Raised inside the tool loop when a turn must end before the model is done.
+
+    Carries the partial answer to hand back, so a stopped turn reports what it
+    was doing instead of failing silently or hanging.
+    """
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+
+
+class _TurnBudget:
+    """Bounds one turn: iterations, wall clock, and stuck-loop detection."""
+
+    def __init__(
+        self,
+        *,
+        max_iterations: int | None = None,
+        timeout_seconds: float | None = None,
+        max_repeats: int | None = None,
+    ):
+        # `is None`, not `or`: an explicit 0 must stay 0 rather than falling back
+        # to the default.
+        self.max_iterations = (
+            config.MAX_TOOL_ITERATIONS if max_iterations is None else max_iterations
+        )
+        self.timeout_seconds = (
+            config.TURN_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+        )
+        self.max_repeats = (
+            config.MAX_REPEATED_TOOL_CALLS if max_repeats is None else max_repeats
+        )
+        self.started = time.monotonic()
+        self.iterations = 0
+        self._last_signature: str | None = None
+        self._repeat_count = 0
+
+    @property
+    def elapsed(self) -> float:
+        return time.monotonic() - self.started
+
+    def start_iteration(self, last_tool: str | None) -> None:
+        """Raise TurnStopped if this turn has run out of room."""
+        if self.iterations >= self.max_iterations:
+            raise TurnStopped(
+                "max_iterations",
+                f"I stopped after {self.iterations} tool steps without reaching an "
+                f"answer"
+                + (f"; the last thing I ran was `{last_tool}`." if last_tool else ".")
+                + " Ask me to continue if that looks right.",
+            )
+        if self.elapsed > self.timeout_seconds:
+            raise TurnStopped(
+                "timeout",
+                f"I stopped after {int(self.elapsed)}s, which is this turn's time "
+                f"budget"
+                + (f"; the last thing I ran was `{last_tool}`." if last_tool else ".")
+                + " Ask me to continue if that looks right.",
+            )
+        self.iterations += 1
+
+    def record_call(self, name: str, arguments: dict[str, Any]) -> None:
+        """Track consecutive identical calls — the common runaway shape."""
+        try:
+            signature = f"{name}:{json.dumps(arguments, sort_keys=True, default=str)}"
+        except (TypeError, ValueError):
+            signature = f"{name}:<unserializable>"
+
+        if signature == self._last_signature:
+            self._repeat_count += 1
+        else:
+            self._last_signature = signature
+            self._repeat_count = 1
+
+        if self._repeat_count >= self.max_repeats:
+            raise TurnStopped(
+                "repeated_tool_call",
+                f"I stopped because I called `{name}` with the same arguments "
+                f"{self._repeat_count} times in a row without making progress.",
+            )
 
 
 def get_system_instruction(channel: str = "cli") -> str:
@@ -90,6 +178,10 @@ class KaraSession:
         # Tool groups currently visible to the model. Starts at the always-on set
         # and grows as the conversation needs more; never shrinks within a session.
         self.active_groups: set[str] = set(registry.ALWAYS_ON)
+        # Cooperative cancellation. handle_message runs inside asyncio.to_thread,
+        # and a thread cannot be killed from outside — so /stop sets this and the
+        # loop checks it at each safe point.
+        self._cancel = threading.Event()
 
         if not self.provider.has_credentials:
             raise RuntimeError(
@@ -179,6 +271,22 @@ class KaraSession:
         self._reset_messages()
         return f"New conversation started. Model: {self.model}"
 
+    def request_stop(self) -> None:
+        """Ask the running turn to stop at its next safe point."""
+        self._cancel.set()
+
+    @property
+    def stop_requested(self) -> bool:
+        return self._cancel.is_set()
+
+    def _check_cancelled(self, last_tool: str | None = None) -> None:
+        if self._cancel.is_set():
+            raise TurnStopped(
+                "cancelled",
+                "Stopped at your request"
+                + (f"; I was part-way through `{last_tool}`." if last_tool else ".") ,
+            )
+
     def activate_groups(self, groups: set[str] | frozenset[str]) -> set[str]:
         """Reveal tool groups to the model. Returns the groups newly activated."""
         wanted = {g for g in groups if g in registry.GROUPS}
@@ -256,6 +364,8 @@ class KaraSession:
         """Process a user message through the tool loop and return Kara's reply."""
         set_computer_request_context(self.session_key, user_input)
         session_db.clear_interrupted(self.session_key)
+        # A stop applies to the turn it interrupted, not the next one.
+        self._cancel.clear()
 
         # Cheap keyword pre-activation. Anything it misses, the model can still
         # reach through activate_tool_group, so a miss costs a round trip and
@@ -267,8 +377,36 @@ class KaraSession:
         self.messages.append(user_msg)
         self._persist(user_msg)
 
-        # LEARN: Agentic loop — keep calling the model until it stops requesting tools.
+        try:
+            return self._run_tool_loop(_TurnBudget(), on_tool_call)
+        except TurnStopped as stopped:
+            # A stopped turn still has to leave usable history behind: the model
+            # asked for tools it never got results for, so record why.
+            note = {
+                "role": "assistant",
+                "content": f"[turn stopped: {stopped.reason}] {stopped.message}",
+            }
+            self.messages.append(note)
+            self._persist(note)
+            return stopped.message
+
+    def _run_tool_loop(
+        self,
+        budget: _TurnBudget,
+        on_tool_call: ToolCallback | None = None,
+    ) -> str:
+        """Agentic loop — call the model until it stops requesting tools.
+
+        Bounded by ``budget`` so a model that never stops asking for tools cannot
+        spin forever, and interruptible via ``request_stop`` so a long turn can be
+        cancelled. Both exits raise ``TurnStopped``.
+        """
+        last_tool: str | None = None
+
         while True:
+            self._check_cancelled(last_tool)
+            budget.start_iteration(last_tool)
+
             result_turn = self._chat(with_tools=True)
             # to_message() always carries an explicit role. Appending the raw
             # provider payload used to let a malformed response be persisted as
@@ -281,35 +419,42 @@ class KaraSession:
                 return result_turn.content.strip() or "(No response from model.)"
 
             for call in result_turn.tool_calls:
-                func_name = call.name
-                args = call.arguments
-                if on_tool_call:
-                    on_tool_call(func_name, args)
+                self._check_cancelled(last_tool)
+                budget.record_call(call.name, call.arguments)
+                last_tool = call.name
+                self._execute_tool_call(call, on_tool_call)
 
-                if (
-                    self.allowed_tool_names is not None
-                    and func_name not in self.allowed_tool_names
-                ):
-                    result = f"Error: Tool {func_name} is not allowed in this session."
-                elif func_name == registry.ACTIVATE_TOOL:
-                    result = self._activate_tool_group(**args)
-                elif (fn := TOOL_REGISTRY.get(func_name)) is None:
-                    result = f"Error: Tool {func_name} not found."
-                else:
-                    try:
-                        # LEARN: **args unpacks a dict into keyword arguments: fn(a=1, b=2).
-                        result = fn(**args)
-                    except Exception as e:
-                        result = f"Error executing {func_name}: {e}"
+    def _execute_tool_call(self, call, on_tool_call: ToolCallback | None) -> None:
+        """Run one tool call and append its result to history."""
+        func_name = call.name
+        args = call.arguments
+        if on_tool_call:
+            on_tool_call(func_name, args)
 
-                tool_msg = {
-                    "role": "tool",
-                    "content": str(result),
-                    "tool_name": func_name,
-                    "tool_call_id": call.id,
-                }
-                self.messages.append(tool_msg)
-                self._persist(tool_msg)
+        if (
+            self.allowed_tool_names is not None
+            and func_name not in self.allowed_tool_names
+        ):
+            result = f"Error: Tool {func_name} is not allowed in this session."
+        elif func_name == registry.ACTIVATE_TOOL:
+            result = self._activate_tool_group(**args)
+        elif (fn := TOOL_REGISTRY.get(func_name)) is None:
+            result = f"Error: Tool {func_name} not found."
+        else:
+            try:
+                # LEARN: **args unpacks a dict into keyword arguments: fn(a=1, b=2).
+                result = fn(**args)
+            except Exception as e:
+                result = f"Error executing {func_name}: {e}"
+
+        tool_msg = {
+            "role": "tool",
+            "content": str(result),
+            "tool_name": func_name,
+            "tool_call_id": call.id,
+        }
+        self.messages.append(tool_msg)
+        self._persist(tool_msg)
 
     def end_session(self) -> None:
         """Summarize and close the session (best-effort).

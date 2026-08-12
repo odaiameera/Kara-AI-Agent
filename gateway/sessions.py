@@ -9,6 +9,7 @@ STUDY GUIDE
 from __future__ import annotations
 
 import logging
+import threading
 
 import session_db
 from kara import KaraSession
@@ -17,6 +18,27 @@ log = logging.getLogger("kara.gateway.sessions")
 
 # LEARN: Module-level dict acts as an in-memory cache keyed by session_key string.
 _active: dict[str, KaraSession] = {}
+
+# One turn at a time per session. The gateway processes updates concurrently so
+# that /stop can be received while a turn is running, which means two messages
+# from the same user could otherwise mutate the same KaraSession.messages list
+# at once.
+_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def turn_lock(session_key: str) -> threading.Lock:
+    with _locks_guard:
+        return _locks.setdefault(session_key, threading.Lock())
+
+
+def request_stop(session_key: str) -> bool:
+    """Ask a running turn to stop. False if that session is not active."""
+    session = _active.get(session_key)
+    if session is None:
+        return False
+    session.request_stop()
+    return True
 
 
 def get_session(session_key: str, channel: str = "telegram") -> KaraSession:

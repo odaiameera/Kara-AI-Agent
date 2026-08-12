@@ -87,6 +87,15 @@ def _positive_int_env(name: str, default: int, *, minimum: int = 1) -> int:
 # conversation, including the safety rules, without any error.
 MODEL_CONTEXT_TOKENS = _positive_int_env("KARA_MODEL_CONTEXT_TOKENS", 32768, minimum=2048)
 
+# Bounds on a single turn. The tool loop is otherwise unbounded: a model that
+# keeps requesting tools spins forever, burning tokens and holding the worker
+# thread with no way to stop it.
+MAX_TOOL_ITERATIONS = _positive_int_env("KARA_MAX_TOOL_ITERATIONS", 25)
+TURN_TIMEOUT_SECONDS = _positive_int_env("KARA_TURN_TIMEOUT_SECONDS", 600, minimum=30)
+# How many consecutive identical tool calls (same name and arguments) count as a
+# stuck loop rather than legitimate repetition.
+MAX_REPEATED_TOOL_CALLS = _positive_int_env("KARA_MAX_REPEATED_TOOL_CALLS", 3, minimum=2)
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")

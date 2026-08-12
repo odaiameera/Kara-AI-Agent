@@ -181,9 +181,15 @@ def main() -> None:
     _warn_on_context_budget()
 
     # LEARN: Builder pattern chains .token().post_init().build() to configure the Telegram app.
+    # concurrent_updates is required for /stop to work at all: with the default
+    # sequential processing, a /stop sent during a long turn would not be
+    # dispatched until that turn finished — exactly when it is no longer useful.
+    # gateway.sessions serializes turns per user with a lock, so concurrency here
+    # does not let two messages race the same session.
     app = (
         Application.builder()
         .token(config.TELEGRAM_BOT_TOKEN)
+        .concurrent_updates(True)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()
