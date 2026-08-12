@@ -123,7 +123,8 @@ def _start_reply(user_id: int) -> str:
     return (
         f"Kara online.\nProvider: {session.provider_name}\nModel: {session.model_name}\n"
         f"Semantic memory: {ollama}{resumed}\n"
-        "Commands: /providers  /provider <id>  /models  /model  /model <provider>/<model>  /new  /stop  /restart"
+        "Commands: /providers  /provider <id>  /models  /model  /model <provider>/<model>\n"
+        "          /new  /stop  /usage  /context  /restart"
     )
 
 
@@ -232,6 +233,22 @@ async def codex_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await _reply(update, gw_commands.handle_command(session, "/codex-status") or "")
 
 
+def plain_cmd(command: str):
+    """Build a handler that runs a shared slash command and replies with its text."""
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not user or not _is_allowed(user.id):
+            await _reply(update, "Unauthorized.")
+            return
+        key = session_db.build_session_key("telegram", user.id)
+        session = gw_sessions.get_session(key, channel="telegram")
+        reply = await asyncio.to_thread(gw_commands.handle_command, session, command)
+        await _reply(update, reply or "")
+
+    return handler
+
+
 async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cancel a turn that is already running.
 
@@ -323,4 +340,6 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("auth", auth_cmd))
     app.add_handler(CommandHandler("codex_status", codex_status_cmd))
     app.add_handler(CommandHandler("stop", stop_cmd))
+    app.add_handler(CommandHandler("usage", plain_cmd("/usage")))
+    app.add_handler(CommandHandler("context", plain_cmd("/context")))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

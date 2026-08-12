@@ -13,6 +13,7 @@ import json
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 import config
@@ -33,6 +34,10 @@ TOOL_REGISTRY = registry.TOOL_REGISTRY
 TOOL_SCHEMAS = registry.TOOL_SCHEMAS
 
 log = logging.getLogger("kara.session")
+
+# Marks a tool message as a failure. The model can key off it, and telemetry can
+# count it, without guessing from the prose.
+TOOL_ERROR_PREFIX = "[tool error]"
 
 # LEARN: Type alias — documents that callbacks take (tool_name, args_dict) and return nothing.
 ToolCallback = Callable[[str, dict], None]
@@ -73,7 +78,14 @@ class _TurnBudget:
             config.MAX_REPEATED_TOOL_CALLS if max_repeats is None else max_repeats
         )
         self.started = time.monotonic()
+        self.started_at = datetime.now(timezone.utc).isoformat()
         self.iterations = 0
+        # Running totals for turn telemetry.
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.tool_calls = 0
+        self.tool_errors = 0
+        self.finish_reason = "stop"
         self._last_signature: str | None = None
         self._repeat_count = 0
 
@@ -470,17 +482,20 @@ class KaraSession:
         self.messages.append(user_msg)
         self._persist(user_msg)
 
+        budget = _TurnBudget()
         try:
-            return self._run_tool_loop(_TurnBudget(), on_tool_call)
+            return self._run_tool_loop(budget, on_tool_call)
         except ProviderError:
             # The turn produced nothing usable. Leaving the partial exchange in
             # place would strand a user message with no answer, and every later
             # request would replay that dangling turn.
+            budget.finish_reason = "error"
             self._rollback_to(checkpoint)
             raise
         except TurnStopped as stopped:
             # A stopped turn still has to leave usable history behind: the model
             # asked for tools it never got results for, so record why.
+            budget.finish_reason = stopped.reason
             note = {
                 "role": "assistant",
                 "content": f"[turn stopped: {stopped.reason}] {stopped.message}",
@@ -488,6 +503,27 @@ class KaraSession:
             self.messages.append(note)
             self._persist(note)
             return stopped.message
+        finally:
+            self._record_turn(budget)
+
+    def _record_turn(self, budget: _TurnBudget) -> None:
+        """Persist what this turn cost. Never let telemetry break the reply."""
+        try:
+            session_db.record_turn(
+                self.session_key,
+                started_at=budget.started_at,
+                duration_ms=int(budget.elapsed * 1000),
+                provider_id=getattr(self.provider, "id", "unknown"),
+                model=self.model,
+                prompt_tokens=budget.prompt_tokens,
+                completion_tokens=budget.completion_tokens,
+                iterations=budget.iterations,
+                tool_calls=budget.tool_calls,
+                tool_errors=budget.tool_errors,
+                finish_reason=budget.finish_reason,
+            )
+        except Exception:
+            log.exception("Could not record turn telemetry for %s", self.session_key)
 
     def _rollback_to(self, checkpoint: int) -> None:
         """Discard messages added since ``checkpoint``, in memory and in SQLite."""
@@ -519,6 +555,9 @@ class KaraSession:
             budget.start_iteration(last_tool)
 
             result_turn = self._chat(with_tools=True)
+            budget.prompt_tokens += result_turn.usage.prompt_tokens
+            budget.completion_tokens += result_turn.usage.completion_tokens
+
             # to_message() always carries an explicit role. Appending the raw
             # provider payload used to let a malformed response be persisted as
             # a *user* turn, silently corrupting the transcript for every replay.
@@ -527,48 +566,68 @@ class KaraSession:
             self._persist(msg)
 
             if not result_turn.wants_tools:
+                budget.finish_reason = result_turn.finish_reason
                 return result_turn.content.strip() or "(No response from model.)"
 
             for call in result_turn.tool_calls:
                 self._check_cancelled(last_tool)
                 budget.record_call(call.name, call.arguments)
                 last_tool = call.name
-                self._execute_tool_call(call, on_tool_call)
+                budget.tool_calls += 1
+                if self._execute_tool_call(call, on_tool_call):
+                    budget.tool_errors += 1
 
-    def _execute_tool_call(self, call, on_tool_call: ToolCallback | None) -> None:
-        """Run one tool call and append its result to history."""
+    def _execute_tool_call(self, call, on_tool_call: ToolCallback | None) -> bool:
+        """Run one tool call and append its result to history.
+
+        Returns True if the call failed. Failures are marked explicitly rather
+        than only described in prose: an error string is otherwise
+        indistinguishable — to the model and to telemetry — from a tool that
+        legitimately returned text containing the word "Error".
+        """
         func_name = call.name
         args = call.arguments
         if on_tool_call:
             on_tool_call(func_name, args)
 
+        failed = True
         if (
             self.allowed_tool_names is not None
             and func_name not in self.allowed_tool_names
         ):
-            result = f"Error: Tool {func_name} is not allowed in this session."
+            result = f"Tool {func_name} is not allowed in this session."
         elif func_name == registry.ACTIVATE_TOOL:
             result = self._activate_tool_group(**args)
+            failed = str(result).startswith("Error:")
         elif (fn := TOOL_REGISTRY.get(func_name)) is None:
-            result = f"Error: Tool {func_name} not found."
+            result = f"Tool {func_name} not found."
         else:
             try:
                 # LEARN: **args unpacks a dict into keyword arguments: fn(a=1, b=2).
                 result = fn(**args)
+                failed = False
             except Exception as e:
-                result = f"Error executing {func_name}: {e}"
+                result = f"{type(e).__name__}: {e}"
+                log.warning("Tool %s raised: %s", func_name, e)
+
+        content = str(result)
+        if failed:
+            content = f"{TOOL_ERROR_PREFIX} {func_name}: {content}"
 
         tool_msg = {
             "role": "tool",
             # Capped here, not just by between-turn compaction: this result goes
             # straight into the next request, so a single oversized one could
             # overrun the window before compaction ever sees it.
-            "content": context_budget.cap_tool_result(str(result)),
+            "content": context_budget.cap_tool_result(content),
             "tool_name": func_name,
             "tool_call_id": call.id,
         }
+        if failed:
+            tool_msg["is_error"] = True
         self.messages.append(tool_msg)
         self._persist(tool_msg)
+        return failed
 
     def end_session(self) -> None:
         """Summarize and close the session (best-effort).
