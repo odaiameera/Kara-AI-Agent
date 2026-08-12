@@ -9,6 +9,7 @@ from typing import Any
 
 import scheduler
 from kara import KaraSession
+from tools import registry
 
 log = logging.getLogger("kara.scheduler.runner")
 POLL_SECONDS = float(os.getenv("KARA_SCHEDULER_POLL_SECONDS", "15"))
@@ -16,29 +17,9 @@ TELEGRAM_LIMIT = 4096
 
 # Autonomous runs are intentionally observational. They cannot write files, send
 # mail, drive the desktop, execute tests, mutate memory, or schedule more jobs.
-SAFE_AGENT_TOOLS = frozenset(
-    {
-        "search_memory",
-        "web_search",
-        "web_fetch",
-        "list_directory",
-        "read_file",
-        "search_files",
-        "file_info",
-        "read_office_file",
-        "inspect_sqlite_database",
-        "query_sqlite_database",
-        "inspect_python_file",
-        "validate_python_file",
-        "system_overview",
-        "list_processes",
-        "list_services",
-        "list_scheduled_tasks",
-        "disk_usage",
-        "search_obsidian",
-        "read_obsidian_note",
-    }
-)
+# Membership is declared per-module as SCHEDULED_SAFE and aggregated by the
+# registry, so a tool cannot be added to this boundary from a distance.
+SAFE_AGENT_TOOLS = registry.SCHEDULED_SAFE
 
 
 def _render_job(job: scheduler.ScheduledJob) -> str:

@@ -21,7 +21,7 @@ dependencies = [
 
 [project.scripts]
 kara = "agent:main"
-kara-gateway = "gateway:main"
+kara-gateway = "gateway.run:main"
 kara-update = "update:main"
 kara-install = "install_gateway:main"
 kara-codex-auth = "codex_auth:main"

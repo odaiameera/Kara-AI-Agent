@@ -966,3 +966,15 @@ def computer_use(
             target=locals().get("target"),
             action_sent=None,
         )
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "computer"
+
+TOOLS = [
+    computer_use,
+]
+
+SCHEDULED_SAFE: set[str] = set()

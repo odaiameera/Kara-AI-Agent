@@ -319,3 +319,25 @@ $cs = Get-CimInstance Win32_ComputerSystem
         return _json({"ok": True, "system": system})
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return _error(f"Could not inspect Windows system information: {exc}")
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "windows"
+
+TOOLS = [
+    system_overview,
+    list_processes,
+    list_services,
+    list_scheduled_tasks,
+    disk_usage,
+]
+
+SCHEDULED_SAFE = {
+    "system_overview",
+    "list_processes",
+    "list_services",
+    "list_scheduled_tasks",
+    "disk_usage",
+}

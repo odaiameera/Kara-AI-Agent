@@ -194,3 +194,21 @@ def run_scheduled_job_now(job_id: str) -> str:
         return _json({"ok": True, "job": _job_data(job)})
     except Exception as exc:
         return _json({"ok": False, "error": str(exc)})
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "scheduler"
+
+TOOLS = [
+    schedule_reminder,
+    schedule_agent_job,
+    list_scheduled_jobs,
+    pause_scheduled_job,
+    resume_scheduled_job,
+    delete_scheduled_job,
+    run_scheduled_job_now,
+]
+
+SCHEDULED_SAFE: set[str] = set()

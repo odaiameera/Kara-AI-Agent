@@ -435,3 +435,19 @@ def web_fetch(url: str, max_chars: int = MAX_FETCH_CHARS) -> str:
         return f"Fetched {target} but no readable text was extracted."
 
     return _truncate(f"Title: {title}\nURL: {target}\n\n{text}", max_chars)
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "web"
+
+TOOLS = [
+    web_search,
+    web_fetch,
+]
+
+SCHEDULED_SAFE = {
+    "web_search",
+    "web_fetch",
+}

@@ -43,7 +43,7 @@ def main() -> None:
     # LEARN: Writes a flag file the running gateway watches — triggers self-restart without killing manually.
     gw_restart.request_restart("kara update")
     print("Update complete. Gateway will restart automatically if it is running.")
-    print("If not running, start with: uv run gateway.py")
+    print("If not running, start with: uv run kara-gateway")
 
 
 if __name__ == "__main__":

@@ -691,3 +691,16 @@ def _run_pdf_worker() -> int:
         result = _json({"ok": False, "error": f"Invalid PDF worker request: {exc}"})
     sys.stdout.write(result)
     return 0
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "document"
+
+TOOLS = [
+    read_pdf,
+    ocr_image,
+]
+
+SCHEDULED_SAFE: set[str] = set()

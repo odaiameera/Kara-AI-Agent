@@ -72,6 +72,15 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_messages_session
                 ON messages(session_key, seq);
+            CREATE TABLE IF NOT EXISTS session_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_key TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_summaries_created
+                ON session_summaries(created_at);
             """
         )
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
@@ -242,3 +251,60 @@ def is_interrupted(session_key: str) -> bool:
             (session_key,),
         ).fetchone()
     return bool(row and row["interrupted"])
+
+
+# --- Session summaries ---------------------------------------------------------
+# What Kara remembers about a past conversation. Raw turns stay in `messages` for
+# replay; only these summaries feed semantic recall, so search returns decisions
+# rather than chatter.
+
+
+def save_session_summary(
+    session_key: str, title: str, summary: str, *, created_at: str | None = None
+) -> int:
+    """Store one end-of-session summary. Returns its row id."""
+    init_db()
+    text = summary.strip()
+    if not text:
+        return 0
+    with _conn() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO session_summaries (session_key, title, summary, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (session_key, title.strip() or session_key, text, created_at or _now()),
+        )
+        return int(cursor.lastrowid or 0)
+
+
+def load_session_summaries() -> list[dict[str, Any]]:
+    init_db()
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, session_key, title, summary, created_at FROM session_summaries "
+            "ORDER BY id"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def session_summary_fingerprint() -> tuple[int, int, str]:
+    """Cheap change detector for the vector index: (count, max id, max created_at)."""
+    init_db()
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id, "
+            "COALESCE(MAX(created_at), '') AS max_created FROM session_summaries"
+        ).fetchone()
+    return (int(row["n"]), int(row["max_id"]), str(row["max_created"]))
+
+
+def has_session_summary(session_key: str, summary: str) -> bool:
+    """True if this exact summary is already stored (keeps migration idempotent)."""
+    init_db()
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM session_summaries WHERE session_key=? AND summary=? LIMIT 1",
+            (session_key, summary.strip()),
+        ).fetchone()
+    return row is not None

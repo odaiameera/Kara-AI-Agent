@@ -225,3 +225,19 @@ def query_sqlite_database(path: str, query: str, max_rows: int = 100) -> str:
     finally:
         if connection is not None:
             connection.close()
+
+# --- Registry declaration ------------------------------------------------------
+# Consumed by tools.registry; this is the single source of truth for which
+# functions in this module are exposed to the model and which of them are safe
+# for unattended scheduled runs.
+TOOL_GROUP = "sql"
+
+TOOLS = [
+    inspect_sqlite_database,
+    query_sqlite_database,
+]
+
+SCHEDULED_SAFE = {
+    "inspect_sqlite_database",
+    "query_sqlite_database",
+}
