@@ -72,6 +72,21 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", _default_host).rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
+
+def _positive_int_env(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        value = int(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
+
+# Context window Kara asks the model for. Ollama silently truncates a prompt that
+# exceeds num_ctx, and its default is 4096 — smaller than Kara's system prompt
+# plus baseline tool schemas — so leaving this unset drops the head of the
+# conversation, including the safety rules, without any error.
+MODEL_CONTEXT_TOKENS = _positive_int_env("KARA_MODEL_CONTEXT_TOKENS", 32768, minimum=2048)
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")

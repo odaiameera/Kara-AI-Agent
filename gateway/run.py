@@ -19,6 +19,7 @@ from telegram import Update
 from telegram.ext import Application
 
 import config
+import context_budget
 import scheduler
 import scheduled_runner
 import session_db
@@ -61,6 +62,18 @@ def _setup_logging() -> None:
         )
         file_handler.setFormatter(fmt)
         root.addHandler(file_handler)
+
+
+def _warn_on_context_budget() -> None:
+    """Surface a context window too small to hold Kara's own prompt."""
+    import kara
+
+    warning = context_budget.check_configured_window(
+        kara.get_system_instruction("telegram"),
+        kara.registry.schemas_for_groups(set(kara.registry.ALWAYS_ON)),
+    )
+    if warning:
+        log.warning("%s", warning)
 
 
 def _refresh_fingerprint() -> None:
@@ -164,6 +177,8 @@ def main() -> None:
     log.info("Kara gateway starting")
     log.info("Brain: %s", config.BRAIN_DIR)
     log.info("Logs: %s", config.GATEWAY_LOG)
+    log.info("Context window: %s tokens", config.MODEL_CONTEXT_TOKENS)
+    _warn_on_context_budget()
 
     # LEARN: Builder pattern chains .token().post_init().build() to configure the Telegram app.
     app = (

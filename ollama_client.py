@@ -71,11 +71,17 @@ def chat(
     temperature: float = 0.0,
 ) -> dict[str, Any]:
     """Call Ollama ``/api/chat`` (non-streaming). Returns the full response object."""
+    # num_ctx must be explicit: Ollama defaults to 4096 tokens and silently drops
+    # whatever does not fit rather than failing, which would quietly discard the
+    # head of the prompt — the system prompt and its safety rules.
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature},
+        "options": {
+            "temperature": temperature,
+            "num_ctx": config.MODEL_CONTEXT_TOKENS,
+        },
     }
     if tools:
         payload["tools"] = tools
