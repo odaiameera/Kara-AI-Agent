@@ -53,17 +53,21 @@ Everything private and persistent lives in `brain/` and is gitignored:
 brain/
   core/          Always-in-context persona, user, and active-task blocks
   learnings/     Durable facts and decisions (Markdown)
-  sessions/      Episodic conversation logs (Markdown)
+  sessions/      Legacy conversation logs, retained but no longer written or indexed
   index/         Derived vector index for hybrid search
   settings.json  Active provider/model settings
   providers.json Provider definitions without API keys
-  state.db       SQLite conversation history
+  state.db       SQLite conversation history and session summaries
   scheduler.db   Durable reminders and scheduled jobs
   auth.json      OAuth tokens (GitHub/Codex), when configured
   logs/          Gateway logs
 ```
 
-Kara’s built-in semantic search uses cached hybrid ranking: embeddings plus keyword matching. A cheap stat fingerprint avoids re-reading/re-embedding memory files when they have not changed. If embeddings are unavailable, search falls back to keywords.
+Conversation transcripts live in one place: the `messages` table in `state.db`. Semantic recall is built from two curated sources instead — `learnings/` (facts Kara chose to save) and the `session_summaries` table (one recap per finished conversation). Raw turns are deliberately not embedded, so recall returns decisions rather than small talk, and the index no longer grows with every scheduled job that runs.
+
+Existing `brain/sessions/*.md` logs are migrated once on startup: any `## Summary` block is lifted into `session_summaries` and the files are left on disk untouched.
+
+Kara’s built-in semantic search uses cached hybrid ranking: embeddings plus keyword matching. A cheap fingerprint — file stat for learnings, row count and latest id for summaries — avoids re-embedding when nothing has changed. If embeddings are unavailable, search falls back to keywords.
 
 ## Requirements
 

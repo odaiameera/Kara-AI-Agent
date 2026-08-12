@@ -83,6 +83,10 @@ def init_core_memory() -> None:
     """Seed any missing core memory files with sensible defaults."""
     config.ensure_brain()
     _migrate_legacy_core()
+    try:
+        migrate_legacy_session_logs()
+    except Exception:
+        pass  # a migration failure must never block the chat loop
     defaults = {
         "persona": _default_persona(),
         "human": DEFAULT_HUMAN,
@@ -134,37 +138,47 @@ def save_learning(title: str, content: str) -> Path:
     return path
 
 
-def start_session() -> Path:
-    """Create a new timestamped session log and return its path."""
+_SUMMARY_HEADING = re.compile(r"^##\s+Summary\s*$", re.MULTILINE)
+
+
+def _extract_legacy_summary(text: str) -> str:
+    """Pull the ``## Summary`` block out of a pre-migration session log."""
+    match = _SUMMARY_HEADING.search(text)
+    return text[match.end():].strip() if match else ""
+
+
+def migrate_legacy_session_logs() -> int:
+    """Import summaries from old ``brain/sessions/*.md`` logs into SQLite, once.
+
+    Conversation transcripts now live only in SQLite and only summaries are
+    indexed, so the old markdown logs are no longer read. Their summaries are
+    still worth keeping, so lift those across and leave the files on disk —
+    they are the user's data and this must not delete them.
+    """
+    if config.SESSIONS_MIGRATED_MARKER.exists():
+        return 0
+
+    import session_db
+
     config.ensure_brain()
-    stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    path = config.SESSIONS_DIR / f"{stamp}.md"
-    header = (
-        f"# Session {stamp}\n\n"
-        f"_Started: {datetime.now().isoformat(timespec='seconds')}_\n\n"
-    )
-    _write(path, header)
-    return path
+    imported = 0
+    for path in sorted(config.SESSIONS_DIR.glob("*.md")):
+        summary = _extract_legacy_summary(_read(path))
+        if not summary:
+            continue  # raw chatter with no recap — exactly what we stopped indexing
+        session_key = f"legacy:{path.stem}"
+        if session_db.has_session_summary(session_key, summary):
+            continue
+        try:
+            stamp = datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+                timespec="seconds"
+            )
+        except OSError:
+            stamp = None
+        session_db.save_session_summary(
+            session_key, f"Session {path.stem}", summary, created_at=stamp
+        )
+        imported += 1
 
-
-def log_turn(session_path: Path, role: str, text: str) -> None:
-    """Append a single conversation turn to the session log."""
-    if not text:
-        return
-    try:
-        # LEARN: open(..., "a") append mode adds to the file without reading it first.
-        with open(session_path, "a", encoding="utf-8") as f:
-            f.write(f"**{role}:** {text.strip()}\n\n")
-    except Exception:
-        pass  # logging must never crash the chat loop
-
-
-def finalize_session(session_path: Path, summary: str = "") -> None:
-    """Append an optional end-of-session summary."""
-    if not summary:
-        return
-    try:
-        with open(session_path, "a", encoding="utf-8") as f:
-            f.write(f"\n---\n\n## Summary\n\n{summary.strip()}\n")
-    except Exception:
-        pass
+    _write(config.SESSIONS_MIGRATED_MARKER, datetime.now().isoformat(timespec="seconds"))
+    return imported

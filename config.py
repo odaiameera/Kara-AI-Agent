@@ -53,6 +53,7 @@ RESTART_NOTIFY_FILE = BRAIN_DIR / "restart_notify.json"
 RESTART_LOCK_FILE = BRAIN_DIR / "restart.lock"
 GATEWAY_INSTANCE_LOCK = BRAIN_DIR / "gateway.instance.lock"
 CODE_FINGERPRINT_FILE = BRAIN_DIR / "code.fingerprint"
+SESSIONS_MIGRATED_MARKER = BRAIN_DIR / "sessions_migrated.marker"
 
 # LEARN: A dict maps string keys to Path values — handy for named memory sections.
 CORE_FILES = {

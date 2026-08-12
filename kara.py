@@ -124,8 +124,6 @@ class KaraSession:
             elif self.messages[0].get("role") != "system":
                 self._reset_messages()
 
-        self.session_path = memory_store.start_session()
-
     # LEARN: @property lets you write session.model_name instead of session.model_name().
     @property
     def model_name(self) -> str:
@@ -258,7 +256,6 @@ class KaraSession:
         """Process a user message through the tool loop and return Kara's reply."""
         set_computer_request_context(self.session_key, user_input)
         session_db.clear_interrupted(self.session_key)
-        memory_store.log_turn(self.session_path, "You", user_input)
 
         # Cheap keyword pre-activation. Anything it misses, the model can still
         # reach through activate_tool_group, so a miss costs a round trip and
@@ -280,8 +277,6 @@ class KaraSession:
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
                 reply = (msg.get("content") or "").strip()
-                if reply:
-                    memory_store.log_turn(self.session_path, "Kara", reply)
                 return reply or "(No response from model.)"
 
             for call in tool_calls:
@@ -317,7 +312,12 @@ class KaraSession:
                 self._persist(tool_msg)
 
     def end_session(self) -> None:
-        """Summarize and close the session log (best-effort)."""
+        """Summarize and close the session (best-effort).
+
+        The summary is stored exactly once, in SQLite. It used to be written both
+        to the session log and again as a learning, which put the same text into
+        the vector index twice and let one conversation crowd out search results.
+        """
         session_db.mark_interrupted(self.session_key)
         try:
             summary_prompt = {
@@ -332,9 +332,10 @@ class KaraSession:
             data = self._chat(with_tools=False)
             summary = ((data.get("message") or {}).get("content") or "").strip()
             if summary:
-                memory_store.finalize_session(self.session_path, summary)
-                memory_store.save_learning(
-                    f"Session recap {self.session_path.stem}", summary
+                session_db.save_session_summary(
+                    self.session_key,
+                    f"Session recap ({self.channel})",
+                    summary,
                 )
         except Exception:
             pass

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import kara
@@ -28,7 +27,6 @@ class KaraToolRestrictionTests(unittest.TestCase):
         session.model = "test-model"
         session.provider = provider
         session.messages = []
-        session.session_path = Path("unused.md")
         session.allowed_tool_names = frozenset(allowed)
         session.active_groups = set(registry.ALWAYS_ON)
         session._persist = Mock()
@@ -68,7 +66,6 @@ class KaraToolRestrictionTests(unittest.TestCase):
             patch.dict(kara.TOOL_REGISTRY, {"write_file": write_mock}),
             patch.object(kara, "set_computer_request_context"),
             patch.object(kara.session_db, "clear_interrupted"),
-            patch.object(kara.memory_store, "log_turn"),
         ):
             reply = session.handle_message("Inspect only")
         self.assertEqual(reply, "Handled safely.")
@@ -108,7 +105,6 @@ class KaraToolRestrictionTests(unittest.TestCase):
         with (
             patch.object(kara, "set_computer_request_context"),
             patch.object(kara.session_db, "clear_interrupted"),
-            patch.object(kara.memory_store, "log_turn"),
         ):
             session.handle_message("load the file tools")
         # The activation call is rejected by the allowlist before it is handled,
@@ -125,7 +121,6 @@ class KaraToolGatingTests(unittest.TestCase):
         session.model = "test-model"
         session.provider = provider
         session.messages = []
-        session.session_path = Path("unused.md")
         session.allowed_tool_names = None
         session.active_groups = set(registry.ALWAYS_ON)
         session._persist = Mock()
@@ -135,7 +130,6 @@ class KaraToolGatingTests(unittest.TestCase):
         with (
             patch.object(kara, "set_computer_request_context"),
             patch.object(kara.session_db, "clear_interrupted"),
-            patch.object(kara.memory_store, "log_turn"),
         ):
             session.handle_message(text)
 
