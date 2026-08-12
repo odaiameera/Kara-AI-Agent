@@ -103,6 +103,23 @@ def _discover_provider_defs_from_env() -> list[dict]:
         )
         seen_ids.add("ollama-local")
 
+    # Anthropic speaks its own Messages API, so it gets a native adapter rather
+    # than riding the openai-compatible one.
+    if os.getenv("ANTHROPIC_API_KEY", "").strip() and "anthropic" not in seen_ids:
+        defs.append(
+            {
+                "id": "anthropic",
+                "name": "Anthropic",
+                "type": "anthropic",
+                "host": os.getenv(
+                    "ANTHROPIC_BASE_URL", "https://api.anthropic.com"
+                ).rstrip("/"),
+                "api_key_env": "ANTHROPIC_API_KEY",
+                "default_model": os.getenv("ANTHROPIC_MODEL", "").strip() or None,
+            }
+        )
+        seen_ids.add("anthropic")
+
     defs.extend(_discover_openai_compatible_defs(seen_ids))
 
     # OpenAI Codex is OAuth-backed, so it does not have an API key env var.
@@ -251,6 +268,10 @@ def to_chat_provider(provider: Provider) -> ChatProvider:
         from providers_openai_compatible import OpenAICompatibleProvider
 
         return OpenAICompatibleProvider(provider)
+    if provider.type == "anthropic":
+        from providers_anthropic import AnthropicProvider
+
+        return AnthropicProvider(provider)
     raise RuntimeError(f"Unsupported provider type: {provider.type}")
 
 

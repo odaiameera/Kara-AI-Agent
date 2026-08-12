@@ -46,12 +46,22 @@ class ProviderError(RuntimeError):
         self.status_code = status_code
 
 
-# 429 is rate limiting; 5xx are upstream failures. Both are worth another try.
-RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+# Client-side codes worth another try: request timeout, too-early, rate limit.
+RETRYABLE_CLIENT_STATUS = frozenset({408, 425, 429})
 
 
 def is_retryable_status(status_code: int | None) -> bool:
-    return status_code in RETRYABLE_STATUS
+    """True for transient failures.
+
+    Any 5xx counts, rather than an enumerated list: providers use non-standard
+    codes in that range — Anthropic returns 529 for `overloaded_error` — and a
+    server-side failure is worth retrying whatever number it carries.
+    """
+    if status_code is None:
+        return False
+    if status_code in RETRYABLE_CLIENT_STATUS:
+        return True
+    return 500 <= status_code < 600
 
 
 def call_with_retry(
@@ -153,6 +163,11 @@ class ChatResult:
     finish_reason: str = "stop"
     role: str = "assistant"
     raw: dict[str, Any] = field(default_factory=dict)
+    # Provider-native content blocks that must be replayed verbatim on the next
+    # turn. Anthropic's thinking blocks are the case this exists for: dropping
+    # or editing them on replay can be rejected outright. Adapters that have no
+    # such requirement leave this empty and nothing downstream changes.
+    provider_content: list[Any] = field(default_factory=list)
 
     @property
     def wants_tools(self) -> bool:
@@ -168,6 +183,8 @@ class ChatResult:
         message: dict[str, Any] = {"role": self.role, "content": self.content}
         if self.tool_calls:
             message["tool_calls"] = [call.to_wire() for call in self.tool_calls]
+        if self.provider_content:
+            message["provider_content"] = self.provider_content
         return message
 
 

@@ -215,7 +215,10 @@ Three adapters cover the field:
 |---|---|
 | `ollama` | Ollama Cloud and local Ollama |
 | `openai-codex` | ChatGPT Codex over OAuth |
+| `anthropic` | Claude via the Anthropic Messages API |
 | `openai-compatible` | Anything speaking OpenAI `/chat/completions` — OpenAI, Groq, Together, OpenRouter, DeepSeek, Mistral, Fireworks, vLLM, LM Studio |
+
+Anthropic needs its own adapter rather than the generic one: `/v1/messages` is a different wire format — the system prompt is a top-level field, tool schemas are flat, tool results are content blocks inside a user message, and the model's thinking blocks must be replayed unchanged on the next turn (Kara persists them per message for exactly this). Set `ANTHROPIC_API_KEY` and it appears as the provider `anthropic`.
 
 Adding a backend of the third kind needs no code. Set a base URL in `.env` and Kara discovers it:
 

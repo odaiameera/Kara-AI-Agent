@@ -106,6 +106,11 @@ def init_db() -> None:
             # Lets a failed tool call be counted and shown as a failure rather
             # than being indistinguishable from a result whose text says "Error".
             conn.execute("ALTER TABLE messages ADD COLUMN is_error INTEGER DEFAULT 0")
+        if "provider_content" not in columns:
+            # Provider-native content blocks replayed verbatim on the next turn
+            # (Anthropic thinking blocks). Stored as JSON; NULL for providers
+            # that have nothing to preserve.
+            conn.execute("ALTER TABLE messages ADD COLUMN provider_content TEXT")
         _backfill_legacy_tool_call_ids_in_conn(conn)
     _initialized = True
 
@@ -153,6 +158,12 @@ def backfill_legacy_tool_call_ids() -> None:
         _backfill_legacy_tool_call_ids_in_conn(conn)
 
 
+def _dump_provider_content(msg: dict[str, Any]) -> str | None:
+    """Serialize provider-native content blocks, if this message carries any."""
+    blocks = msg.get("provider_content")
+    return json.dumps(blocks) if blocks else None
+
+
 def build_session_key(platform: str, user_id: int | str) -> str:
     return f"kara:{platform}:user:{user_id}"
 
@@ -197,7 +208,8 @@ def load_messages(session_key: str) -> list[dict[str, Any]]:
     init_db()
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT role, content, tool_calls, tool_name, tool_call_id, is_error FROM messages "
+            "SELECT role, content, tool_calls, tool_name, tool_call_id, is_error, provider_content "
+            "FROM messages "
             "WHERE session_key=? ORDER BY seq",
             (session_key,),
         ).fetchall()
@@ -216,6 +228,8 @@ def load_messages(session_key: str) -> list[dict[str, Any]]:
             msg["tool_call_id"] = row["tool_call_id"]
         if row["is_error"]:
             msg["is_error"] = True
+        if row["provider_content"]:
+            msg["provider_content"] = json.loads(row["provider_content"])
         messages.append(msg)
     return messages
 
@@ -231,8 +245,8 @@ def append_message(session_key: str, msg: dict[str, Any]) -> None:
         tool_calls = msg.get("tool_calls")
         conn.execute(
             """
-            INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id, is_error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id, is_error, provider_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_key,
@@ -243,6 +257,7 @@ def append_message(session_key: str, msg: dict[str, Any]) -> None:
                 msg.get("tool_name"),
                 msg.get("tool_call_id"),
                 1 if msg.get("is_error") else 0,
+                _dump_provider_content(msg),
             ),
         )
         conn.execute(
@@ -265,8 +280,8 @@ def replace_messages(session_key: str, messages: list[dict[str, Any]]) -> None:
             tool_calls = msg.get("tool_calls")
             conn.execute(
                 """
-                INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id, is_error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id, is_error, provider_content)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_key,
@@ -277,6 +292,7 @@ def replace_messages(session_key: str, messages: list[dict[str, Any]]) -> None:
                     msg.get("tool_name"),
                     msg.get("tool_call_id"),
                     1 if msg.get("is_error") else 0,
+                    _dump_provider_content(msg),
                 ),
             )
         conn.execute(

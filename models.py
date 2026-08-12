@@ -22,6 +22,7 @@ PROVIDER_DEFAULT_MODELS = {
     # gpt-oss:20b is confirmed to work on the current Ollama Cloud key; glm-5.2 returns subscription 403.
     "ollama-cloud": "gpt-oss:20b",
     "ollama": DEFAULT_MODEL,
+    "anthropic": "claude-opus-5",
 }
 
 

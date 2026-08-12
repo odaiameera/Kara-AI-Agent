@@ -15,12 +15,20 @@ from tests.support import make_session
 
 class RetryClassificationTests(unittest.TestCase):
     def test_rate_limit_and_gateway_errors_are_retryable(self) -> None:
-        for status in (408, 429, 500, 502, 503, 504):
+        for status in (408, 425, 429, 500, 502, 503, 504):
+            self.assertTrue(is_retryable_status(status), status)
+
+    def test_any_5xx_is_retryable(self) -> None:
+        """Providers use non-standard 5xx codes — Anthropic returns 529."""
+        for status in (505, 520, 529, 599):
             self.assertTrue(is_retryable_status(status), status)
 
     def test_client_errors_are_not_retryable(self) -> None:
-        for status in (400, 401, 403, 404, 422):
+        for status in (400, 401, 403, 404, 409, 422):
             self.assertFalse(is_retryable_status(status), status)
+
+    def test_missing_status_is_not_retryable(self) -> None:
+        self.assertFalse(is_retryable_status(None))
 
     def test_error_carries_its_status_and_retryability(self) -> None:
         err = ProviderError("boom", retryable=True, status_code=429)

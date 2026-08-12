@@ -129,6 +129,11 @@ def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
 PROVIDER_RETRY_BASE_DELAY = _float_env("KARA_PROVIDER_RETRY_BASE_DELAY", 1.0)
 PROVIDER_TIMEOUT_SECONDS = _float_env("KARA_PROVIDER_TIMEOUT_SECONDS", 300.0, minimum=5.0)
 
+# Maximum tokens one reply may generate. Ollama infers this; the Anthropic
+# Messages API requires it explicitly, and there the budget covers the model's
+# thinking as well as the visible answer.
+MAX_OUTPUT_TOKENS = _positive_int_env("KARA_MAX_OUTPUT_TOKENS", 16384, minimum=256)
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")
