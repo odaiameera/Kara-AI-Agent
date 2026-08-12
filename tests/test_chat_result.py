@@ -134,13 +134,14 @@ class PhantomUserMessageTests(unittest.TestCase):
         with (
             patch.object(kara, "set_computer_request_context"),
             patch.object(kara.session_db, "clear_interrupted"),
+            patch.object(kara.session_db, "replace_messages"),
             self.assertRaises(ProviderError),
         ):
             session.handle_message("hello")
 
-        # The user's own message is there; no phantom assistant/user turn follows.
-        roles = [m.get("role") for m in session.messages]
-        self.assertEqual(roles, ["user"])
+        # No phantom turn is stored, and the failed turn is rolled back whole so
+        # the user message is not left dangling without an answer.
+        self.assertEqual(session.messages, [])
 
     def test_empty_response_returns_the_no_response_marker(self) -> None:
         class _SilentProvider:

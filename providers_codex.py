@@ -19,6 +19,7 @@ from provider_base import (
     ChatResult,
     ProviderError,
     Usage,
+    is_retryable_status,
     tool_calls_from_openai_shape,
 )
 from providers import Provider
@@ -213,7 +214,9 @@ class OpenAICodexProvider:
                     # API error is shown instead of masking it with ResponseNotRead.
                     response.read()
                     raise ProviderError(
-                        f"OpenAI Codex chat HTTP {response.status_code}: {response.text[:500]}"
+                        f"OpenAI Codex chat HTTP {response.status_code}: {response.text[:500]}",
+                        retryable=is_retryable_status(response.status_code),
+                        status_code=response.status_code,
                     )
                 for raw_line in response.iter_lines():
                     if not raw_line or not raw_line.startswith("data: "):
@@ -252,6 +255,10 @@ class OpenAICodexProvider:
                         raise ProviderError(f"OpenAI Codex response failed: {event.get('error') or event}")
         except ProviderError:
             raise
+        except httpx.RequestError as exc:
+            raise ProviderError(
+                f"Could not reach OpenAI Codex: {exc}", retryable=True
+            ) from exc
         except Exception as exc:
             raise ProviderError(f"OpenAI Codex chat request failed: {exc}") from exc
 

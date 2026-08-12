@@ -22,7 +22,7 @@ import models
 import providers
 import session_db
 import time_context
-from provider_base import ChatResult
+from provider_base import ChatResult, ProviderError, call_with_retry
 from tools import registry
 from tools.computer_tools import set_computer_request_context
 
@@ -396,14 +396,53 @@ class KaraSession:
         else:
             base = str(request_messages[system_index].get("content") or "").rstrip()
             request_messages[system_index]["content"] = f"{base}\n\n{runtime_clock}"
-        result = self.provider.chat(
-            self.model,
-            request_messages,
-            tools=tools if with_tools else None,
-        )
+        result = self._call_provider(request_messages, tools if with_tools else None)
         if result.usage.prompt_tokens:
             self._last_prompt_tokens = result.usage.prompt_tokens
         return result
+
+    def _call_provider(
+        self,
+        request_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+    ) -> ChatResult:
+        """One provider call, with retries and a single mid-turn failover.
+
+        Provider failover previously happened only when a session was created, so
+        a provider that went down mid-conversation broke every following turn.
+        """
+
+        def attempt() -> ChatResult:
+            return self.provider.chat(self.model, request_messages, tools=tools)
+
+        def note_retry(number: int, error: ProviderError, wait: float) -> None:
+            log.warning(
+                "Provider %s failed (attempt %s): %s — retrying in %.1fs",
+                self.provider.id,
+                number,
+                error,
+                wait,
+            )
+
+        try:
+            return call_with_retry(attempt, on_retry=note_retry)
+        except ProviderError as exc:
+            if not exc.retryable:
+                raise
+            fallback = providers.first_reachable_provider()
+            if fallback is None or fallback.id == self.provider.id:
+                raise
+            log.warning(
+                "Provider %s exhausted retries; failing over to %s",
+                self.provider.id,
+                fallback.id,
+            )
+            self.provider = fallback
+            models.set_active(fallback.id, self.model)
+            session_db.update_session_model(
+                self.session_key, fallback.id, self.model
+            )
+            return self.provider.chat(self.model, request_messages, tools=tools)
 
     def handle_message(
         self,
@@ -424,12 +463,21 @@ class KaraSession:
 
         self.compact_if_needed()
 
+        # Where history stood before this turn, so a failed turn can be undone.
+        checkpoint = len(self.messages)
+
         user_msg = {"role": "user", "content": user_input}
         self.messages.append(user_msg)
         self._persist(user_msg)
 
         try:
             return self._run_tool_loop(_TurnBudget(), on_tool_call)
+        except ProviderError:
+            # The turn produced nothing usable. Leaving the partial exchange in
+            # place would strand a user message with no answer, and every later
+            # request would replay that dangling turn.
+            self._rollback_to(checkpoint)
+            raise
         except TurnStopped as stopped:
             # A stopped turn still has to leave usable history behind: the model
             # asked for tools it never got results for, so record why.
@@ -440,6 +488,18 @@ class KaraSession:
             self.messages.append(note)
             self._persist(note)
             return stopped.message
+
+    def _rollback_to(self, checkpoint: int) -> None:
+        """Discard messages added since ``checkpoint``, in memory and in SQLite."""
+        if len(self.messages) <= checkpoint:
+            return
+        discarded = len(self.messages) - checkpoint
+        self.messages = self.messages[:checkpoint]
+        try:
+            session_db.replace_messages(self.session_key, self.messages)
+        except Exception:
+            log.exception("Could not roll back %s in storage", self.session_key)
+        log.info("Rolled back %s incomplete messages on %s", discarded, self.session_key)
 
     def _run_tool_loop(
         self,

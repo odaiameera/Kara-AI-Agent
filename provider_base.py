@@ -16,12 +16,75 @@ STUDY GUIDE
 from __future__ import annotations
 
 import json
+import random
+import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, TypeVar, runtime_checkable
+
+import config
+
+_T = TypeVar("_T")
 
 
 class ProviderError(RuntimeError):
-    """Raised when a chat provider API request fails."""
+    """Raised when a chat provider API request fails.
+
+    ``retryable`` distinguishes a transient failure (rate limit, gateway error,
+    dropped connection) from a real client error. Without it every failure looked
+    the same and a single 429 ended the whole turn.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+    ):
+        super().__init__(message)
+        self.retryable = retryable
+        self.status_code = status_code
+
+
+# 429 is rate limiting; 5xx are upstream failures. Both are worth another try.
+RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+def is_retryable_status(status_code: int | None) -> bool:
+    return status_code in RETRYABLE_STATUS
+
+
+def call_with_retry(
+    operation: Callable[[], _T],
+    *,
+    attempts: int | None = None,
+    base_delay: float | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    on_retry: Callable[[int, ProviderError, float], None] | None = None,
+) -> _T:
+    """Run ``operation``, retrying transient provider failures with backoff.
+
+    Uses exponential backoff with jitter so several sessions failing at once do
+    not retry in lockstep. Non-retryable errors are re-raised immediately.
+    """
+    total = attempts if attempts is not None else config.PROVIDER_RETRY_ATTEMPTS
+    delay = base_delay if base_delay is not None else config.PROVIDER_RETRY_BASE_DELAY
+
+    last: ProviderError | None = None
+    for attempt in range(1, total + 1):
+        try:
+            return operation()
+        except ProviderError as exc:
+            last = exc
+            if not exc.retryable or attempt == total:
+                raise
+            wait = delay * (2 ** (attempt - 1))
+            wait += random.uniform(0, wait * 0.25)  # jitter
+            if on_retry:
+                on_retry(attempt, exc, wait)
+            sleep(wait)
+    assert last is not None  # unreachable: the loop either returns or raises
+    raise last
 
 
 def parse_tool_arguments(raw: Any) -> dict[str, Any]:

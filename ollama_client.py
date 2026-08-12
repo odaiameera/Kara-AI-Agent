@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 
 import config
-from provider_base import ProviderError
+from provider_base import ProviderError, is_retryable_status
 from providers import Provider
 
 
@@ -96,12 +96,17 @@ def chat(
         return resp.json()
     except httpx.HTTPStatusError as e:
         detail = e.response.text[:300] if e.response.text else str(e)
+        status = e.response.status_code
         raise OllamaError(
-            f"Ollama chat HTTP {e.response.status_code} ({provider.name}): {detail}"
+            f"Ollama chat HTTP {status} ({provider.name}): {detail}",
+            retryable=is_retryable_status(status),
+            status_code=status,
         ) from e
     except httpx.RequestError as e:
+        # Connection resets and timeouts are transient by nature.
         raise OllamaError(
-            f"Could not reach {provider.name} at {provider.host}: {e}"
+            f"Could not reach {provider.name} at {provider.host}: {e}",
+            retryable=True,
         ) from e
 
 

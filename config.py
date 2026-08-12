@@ -113,6 +113,21 @@ def _fraction_env(name: str, default: float) -> float:
 # Compact once the conversation would use this share of the context window.
 COMPACT_AT_FRACTION = _fraction_env("KARA_COMPACT_AT_FRACTION", 0.75)
 
+# Transient provider failures (rate limits, gateway errors, dropped connections)
+# used to end the whole turn on the first occurrence.
+PROVIDER_RETRY_ATTEMPTS = _positive_int_env("KARA_PROVIDER_RETRY_ATTEMPTS", 3)
+
+
+def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
+    try:
+        value = float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
+
+PROVIDER_RETRY_BASE_DELAY = _float_env("KARA_PROVIDER_RETRY_BASE_DELAY", 1.0)
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")
