@@ -96,6 +96,23 @@ TURN_TIMEOUT_SECONDS = _positive_int_env("KARA_TURN_TIMEOUT_SECONDS", 600, minim
 # stuck loop rather than legitimate repetition.
 MAX_REPEATED_TOOL_CALLS = _positive_int_env("KARA_MAX_REPEATED_TOOL_CALLS", 3, minimum=2)
 
+# Context compaction. Individual tools cap their own output, but nothing capped
+# what entered history *permanently* — one large document read used to sit in
+# context for the rest of the session.
+MAX_TOOL_RESULT_CHARS = _positive_int_env("KARA_MAX_TOOL_RESULT_CHARS", 8000, minimum=500)
+
+
+def _fraction_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if 0.1 <= value <= 0.95 else default
+
+
+# Compact once the conversation would use this share of the context window.
+COMPACT_AT_FRACTION = _fraction_env("KARA_COMPACT_AT_FRACTION", 0.75)
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")

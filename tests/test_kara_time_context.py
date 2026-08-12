@@ -5,6 +5,8 @@ import unittest
 from unittest.mock import patch
 
 import kara
+from provider_base import ChatResult
+from tests.support import make_session
 
 
 class _CapturingProvider:
@@ -13,16 +15,13 @@ class _CapturingProvider:
 
     def chat(self, model, messages, tools=None):
         self.requests.append(copy.deepcopy(messages))
-        return {"message": {"role": "assistant", "content": "ok"}}
+        return ChatResult(content="ok")
 
 
 class KaraRuntimeClockInjectionTests(unittest.TestCase):
     def test_clock_refreshes_for_every_request_without_mutating_history(self) -> None:
         provider = _CapturingProvider()
-        session = kara.KaraSession.__new__(kara.KaraSession)
-        session.model = "test-model"
-        session.provider = provider
-        session.allowed_tool_names = None
+        session = make_session(provider)
         session.messages = [
             {"role": "system", "content": "BASE SYSTEM"},
             {"role": "user", "content": "hello"},

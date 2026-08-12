@@ -228,6 +228,39 @@ def append_message(session_key: str, msg: dict[str, Any]) -> None:
         )
 
 
+def replace_messages(session_key: str, messages: list[dict[str, Any]]) -> None:
+    """Atomically swap a session's stored history.
+
+    Used after context compaction: without this the compacted history would live
+    only in memory and be undone by the next gateway restart, which reloads
+    everything from SQLite.
+    """
+    init_db()
+    with _conn() as conn:
+        conn.execute("DELETE FROM messages WHERE session_key=?", (session_key,))
+        for seq, msg in enumerate(messages):
+            tool_calls = msg.get("tool_calls")
+            conn.execute(
+                """
+                INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_key,
+                    seq,
+                    msg.get("role", "assistant"),
+                    msg.get("content") or "",
+                    json.dumps(tool_calls) if tool_calls else None,
+                    msg.get("tool_name"),
+                    msg.get("tool_call_id"),
+                ),
+            )
+        conn.execute(
+            "UPDATE sessions SET updated_at=? WHERE session_key=?",
+            (_now(), session_key),
+        )
+
+
 def mark_interrupted(session_key: str) -> None:
     with _conn() as conn:
         conn.execute(

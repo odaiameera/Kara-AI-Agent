@@ -39,6 +39,7 @@ def make_session(
         set(registry.ALWAYS_ON) if active_groups is None else set(active_groups)
     )
     session._cancel = threading.Event()
+    session._last_prompt_tokens = 0
     session._persist = Mock()
     return session
 

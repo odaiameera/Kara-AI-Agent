@@ -10,11 +10,13 @@ STUDY GUIDE
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from typing import Any, Callable
 
 import config
+import context_budget
 import memory_store
 import models
 import providers
@@ -29,6 +31,8 @@ from tools.computer_tools import set_computer_request_context
 TOOLS = registry.ALL_TOOLS
 TOOL_REGISTRY = registry.TOOL_REGISTRY
 TOOL_SCHEMAS = registry.TOOL_SCHEMAS
+
+log = logging.getLogger("kara.session")
 
 # LEARN: Type alias — documents that callbacks take (tool_name, args_dict) and return nothing.
 ToolCallback = Callable[[str, dict], None]
@@ -182,6 +186,9 @@ class KaraSession:
         # and a thread cannot be killed from outside — so /stop sets this and the
         # loop checks it at each safe point.
         self._cancel = threading.Event()
+        # Authoritative prompt size from the provider's last response, when it
+        # reports one. Beats the character heuristic for budget decisions.
+        self._last_prompt_tokens = 0
 
         if not self.provider.has_credentials:
             raise RuntimeError(
@@ -271,6 +278,45 @@ class KaraSession:
         self._reset_messages()
         return f"New conversation started. Model: {self.model}"
 
+    def context_tokens(self) -> int:
+        """Best estimate of the prompt this session would send right now.
+
+        Prefers the provider's own count from the last response, which is
+        authoritative; falls back to the character heuristic before the first
+        reply of a session.
+        """
+        conversation = context_budget.estimate_messages_tokens(self.messages)
+        schemas = context_budget.estimate_schema_tokens(self._visible_schemas())
+        if self._last_prompt_tokens:
+            # The reported count already covered history up to the last request,
+            # so scale the estimate by how well it matched.
+            return max(self._last_prompt_tokens, conversation + schemas)
+        return conversation + schemas
+
+    def compact_if_needed(self) -> context_budget.CompactionReport | None:
+        """Shrink history if the next request would crowd the context window."""
+        limit = int(config.MODEL_CONTEXT_TOKENS * config.COMPACT_AT_FRACTION)
+        schemas = context_budget.estimate_schema_tokens(self._visible_schemas())
+        budget_for_history = max(limit - schemas, limit // 4)
+
+        compacted, report = context_budget.compact_messages(
+            self.messages, limit_tokens=budget_for_history
+        )
+        if not report.changed:
+            return None
+
+        self.messages = compacted
+        session_db.replace_messages(self.session_key, compacted)
+        log.info(
+            "Compacted %s: %s -> %s tokens (dropped %s exchanges, trimmed %s results)",
+            self.session_key,
+            report.tokens_before,
+            report.tokens_after,
+            report.dropped_units,
+            report.trimmed_results,
+        )
+        return report
+
     def request_stop(self) -> None:
         """Ask the running turn to stop at its next safe point."""
         self._cancel.set()
@@ -350,11 +396,14 @@ class KaraSession:
         else:
             base = str(request_messages[system_index].get("content") or "").rstrip()
             request_messages[system_index]["content"] = f"{base}\n\n{runtime_clock}"
-        return self.provider.chat(
+        result = self.provider.chat(
             self.model,
             request_messages,
             tools=tools if with_tools else None,
         )
+        if result.usage.prompt_tokens:
+            self._last_prompt_tokens = result.usage.prompt_tokens
+        return result
 
     def handle_message(
         self,
@@ -372,6 +421,8 @@ class KaraSession:
         # never a capability.
         if self.allowed_tool_names is None:
             self.activate_groups(registry.groups_for_text(user_input))
+
+        self.compact_if_needed()
 
         user_msg = {"role": "user", "content": user_input}
         self.messages.append(user_msg)
@@ -449,7 +500,10 @@ class KaraSession:
 
         tool_msg = {
             "role": "tool",
-            "content": str(result),
+            # Capped here, not just by between-turn compaction: this result goes
+            # straight into the next request, so a single oversized one could
+            # overrun the window before compaction ever sees it.
+            "content": context_budget.cap_tool_result(str(result)),
             "tool_name": func_name,
             "tool_call_id": call.id,
         }
