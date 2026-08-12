@@ -11,7 +11,6 @@ STUDY GUIDE
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
@@ -156,16 +155,5 @@ def embed_batch(
     return [embed(provider, t, model=model) for t in texts]
 
 
-def parse_tool_arguments(raw: Any) -> dict[str, Any]:
-    """Normalize tool call arguments from Ollama (object or JSON string)."""
-    if raw is None:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
+# Tool-argument normalization now lives in provider_base.parse_tool_arguments,
+# shared by every adapter rather than duplicated per transport.

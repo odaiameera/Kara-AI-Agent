@@ -13,10 +13,10 @@ from typing import Any, Callable
 
 import memory_store
 import models
-import ollama_client
 import providers
 import session_db
 import time_context
+from provider_base import ChatResult
 from tools import registry
 from tools.computer_tools import set_computer_request_context
 
@@ -223,7 +223,7 @@ class KaraSession:
             ]
         return registry.schemas_for_groups(self.active_groups)
 
-    def _chat(self, *, with_tools: bool = True) -> dict[str, Any]:
+    def _chat(self, *, with_tools: bool = True) -> ChatResult:
         tools = self._visible_schemas() if with_tools else None
         request_messages = [dict(message) for message in self.messages]
         runtime_clock = time_context.build_runtime_time_context()
@@ -269,20 +269,20 @@ class KaraSession:
 
         # LEARN: Agentic loop — keep calling the model until it stops requesting tools.
         while True:
-            data = self._chat(with_tools=True)
-            msg = data.get("message") or {}
+            result_turn = self._chat(with_tools=True)
+            # to_message() always carries an explicit role. Appending the raw
+            # provider payload used to let a malformed response be persisted as
+            # a *user* turn, silently corrupting the transcript for every replay.
+            msg = result_turn.to_message()
             self.messages.append(msg)
             self._persist(msg)
 
-            tool_calls = msg.get("tool_calls") or []
-            if not tool_calls:
-                reply = (msg.get("content") or "").strip()
-                return reply or "(No response from model.)"
+            if not result_turn.wants_tools:
+                return result_turn.content.strip() or "(No response from model.)"
 
-            for call in tool_calls:
-                func = call.get("function") or {}
-                func_name = func.get("name", "")
-                args = ollama_client.parse_tool_arguments(func.get("arguments"))
+            for call in result_turn.tool_calls:
+                func_name = call.name
+                args = call.arguments
                 if on_tool_call:
                     on_tool_call(func_name, args)
 
@@ -306,7 +306,7 @@ class KaraSession:
                     "role": "tool",
                     "content": str(result),
                     "tool_name": func_name,
-                    "tool_call_id": call.get("id"),
+                    "tool_call_id": call.id,
                 }
                 self.messages.append(tool_msg)
                 self._persist(tool_msg)
@@ -329,8 +329,7 @@ class KaraSession:
             }
             self.messages.append(summary_prompt)
             self._persist(summary_prompt)
-            data = self._chat(with_tools=False)
-            summary = ((data.get("message") or {}).get("content") or "").strip()
+            summary = self._chat(with_tools=False).content.strip()
             if summary:
                 session_db.save_session_summary(
                     self.session_key,
