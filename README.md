@@ -173,7 +173,7 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 Multiple allowed users can be comma-separated. Start the gateway in the foreground first so configuration errors are visible:
 
 ```shell
-uv run python gateway.py
+uv run kara-gateway
 ```
 
 Only IDs in `TELEGRAM_ALLOWED_USER_IDS` can use the bot.
@@ -219,7 +219,7 @@ uv run install_gateway.py
 This creates the `KaraGateway` Scheduled Task and launches the gateway without a console window. For debugging:
 
 ```powershell
-uv run gateway.py
+uv run kara-gateway
 ```
 
 The gateway auto-restarts after source changes, persists conversations in `brain/state.db`, and delivers pending scheduler results after restarts. Regular chat replies render Markdown as Telegram HTML; malformed formatting falls back to plain text. Commands intentionally remain plain text.

@@ -36,7 +36,7 @@ def main():
         f" Semantic memory: {'ON (' + config.EMBED_MODEL + ')' if ollama_ok else 'OFF (no reachable embed provider)'}"
     )
     print(" Commands: /models  /model  /model <name>  /new  exit")
-    print(" Gateway (24/7): uv run gateway.py")
+    print(" Gateway (24/7): uv run kara-gateway")
     print("=========================================")
 
     # LEARN: Infinite loop until user types exit/quit or presses Ctrl+D (EOFError).

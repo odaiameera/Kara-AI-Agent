@@ -15,7 +15,7 @@ if (Test-Path $PidFile) {
 Get-CimInstance Win32_Process |
     Where-Object {
         ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe' -or $_.Name -eq 'wscript.exe') -and
-        ($_.CommandLine -like '*-m gateway.run*' -or $_.CommandLine -like '*run_gateway.py*' -or $_.CommandLine -like '*\gateway.py*' -or $_.CommandLine -like '*from gateway.run*')
+        ($_.CommandLine -like '*-m gateway.run*' -or $_.CommandLine -like '*run_gateway.py*' -or $_.CommandLine -like '*kara-gateway*' -or $_.CommandLine -like '*from gateway.run*')
     } |
     ForEach-Object {
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
