@@ -297,12 +297,13 @@ def compact_messages(
     oldest units into a summary note. Leading system messages and the most recent
     ``keep_recent_units`` units are never dropped.
 
-    Trimming applies to every unit, not just old ones. This runs between turns —
-    ``KaraSession.compact_if_needed`` calls it before the new user message is
-    added — so no tool result is still in flight; each was already delivered in
-    full to the turn that asked for it. Protecting recent units from trimming
-    meant a couple of large document reads could keep the history over budget
-    with nothing left to drop.
+    Trimming applies to every unit, not just old ones. Protecting recent units
+    meant a couple of large document reads could hold history over budget with
+    nothing left to drop. Usually nothing is in flight anyway — results were
+    already delivered in full to the turn that asked for them — and when this
+    runs mid-turn to bound a large batch, trimming is still the better outcome:
+    the alternative is a request the provider truncates silently, from the head,
+    where the system prompt lives.
 
     Returns a new list; the input is not mutated.
     """

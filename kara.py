@@ -557,6 +557,10 @@ class KaraSession:
         while True:
             self._check_cancelled(last_tool)
             budget.start_iteration(last_tool)
+            # Also inside the loop, not only between turns: one iteration can add
+            # a whole batch of tool results, and the per-result cap bounds each
+            # one individually rather than their sum.
+            self.compact_if_needed()
 
             result_turn = self._chat(with_tools=True)
             budget.prompt_tokens += result_turn.usage.prompt_tokens

@@ -282,6 +282,51 @@ class SessionCompactionTests(unittest.TestCase):
         tokens = context_budget.estimate_messages_tokens(session.messages)
         self.assertLess(tokens, 12_000)
 
+    def test_a_batch_of_large_results_cannot_overrun_the_window(self) -> None:
+        """The per-result cap bounds each result; a batch needs bounding too."""
+        from provider_base import ToolCall
+
+        names = ("web_search", "github_list_commits", "read_file")
+
+        class _Batching:
+            id = "fake"
+
+            def __init__(self) -> None:
+                self.n = 0
+                self.peak = 0
+
+            def chat(self, model, messages, tools=None):
+                self.n += 1
+                self.peak = max(
+                    self.peak, context_budget.estimate_messages_tokens(messages)
+                )
+                if self.n % 2 == 1:
+                    return ChatResult(
+                        tool_calls=tuple(
+                            ToolCall(id=f"c{self.n}_{i}", name=name, arguments={})
+                            for i, name in enumerate(names)
+                        ),
+                        finish_reason="tool_calls",
+                    )
+                return ChatResult(content="done")
+
+        provider = _Batching()
+        session = make_session(provider)
+        window = 16_000
+        with (
+            patch.object(kara.config, "MODEL_CONTEXT_TOKENS", window),
+            patch.object(kara, "set_computer_request_context"),
+            patch.object(kara.session_db, "clear_interrupted"),
+            patch.object(kara.session_db, "record_turn"),
+            patch.object(kara.session_db, "replace_messages"),
+            patch.dict(kara.TOOL_REGISTRY, {n: (lambda **k: "R" * 25_000) for n in names}),
+        ):
+            for i in range(10):
+                session.handle_message(f"turn {i}")
+
+        self.assertLess(provider.peak, window)
+        self.assertTrue(_pairs_are_intact(session.messages))
+
     def test_reported_prompt_tokens_are_recorded(self) -> None:
         from provider_base import Usage
 
