@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import ollama_client
+from provider_base import ChatResult, chat_result_from_ollama
 from providers import Provider
 
 
@@ -62,10 +63,11 @@ class OllamaProvider:
         tools: list[dict[str, Any]] | None = None,
         *,
         temperature: float = 0.0,
-    ) -> dict[str, Any]:
-        return ollama_client.chat(
+    ) -> ChatResult:
+        data = ollama_client.chat(
             self._config, model, messages, tools=tools, temperature=temperature
         )
+        return chat_result_from_ollama(data)
 
     def embed(self, text: str, model: str | None = None) -> list[float]:
         return ollama_client.embed(self._config, text, model=model)

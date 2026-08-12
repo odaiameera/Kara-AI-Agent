@@ -75,6 +75,7 @@ ALL_TOOLS: list[Callable[..., Any]] = []
 GROUPS: dict[str, tuple[str, ...]] = {}
 _GROUP_OF: dict[str, str] = {}
 _SCHEDULED_SAFE: set[str] = set()
+_READ_ONLY: set[str] = set()
 
 for _module in _MODULES:
     _group = _module.TOOL_GROUP
@@ -90,13 +91,26 @@ for _module in _MODULES:
         _GROUP_OF[_fn.__name__] = _group
     GROUPS[_group] = tuple(_names)
 
-    _unknown = set(_module.SCHEDULED_SAFE) - set(_names)
-    if _unknown:
+    for _attr, _sink in (
+        ("SCHEDULED_SAFE", _SCHEDULED_SAFE),
+        ("READ_ONLY", _READ_ONLY),
+    ):
+        _declared = set(getattr(_module, _attr))
+        _unknown = _declared - set(_names)
+        if _unknown:
+            raise RuntimeError(
+                f"{_module.__name__}.{_attr} names tools it does not define: "
+                f"{sorted(_unknown)}"
+            )
+        _sink.update(_declared)
+
+    # A tool cannot be safe to run unattended without also being side-effect free.
+    _unsafe = set(_module.SCHEDULED_SAFE) - set(_module.READ_ONLY)
+    if _unsafe:
         raise RuntimeError(
-            f"{_module.__name__}.SCHEDULED_SAFE names tools it does not define: "
-            f"{sorted(_unknown)}"
+            f"{_module.__name__}.SCHEDULED_SAFE contains tools missing from "
+            f"READ_ONLY: {sorted(_unsafe)}"
         )
-    _SCHEDULED_SAFE.update(_module.SCHEDULED_SAFE)
 
 TOOL_REGISTRY: dict[str, Callable[..., Any]] = {fn.__name__: fn for fn in ALL_TOOLS}
 TOOL_SCHEMAS: list[dict[str, Any]] = tool_schemas.build_tools(ALL_TOOLS)
@@ -104,6 +118,7 @@ SCHEMAS_BY_NAME: dict[str, dict[str, Any]] = {
     item["function"]["name"]: item for item in TOOL_SCHEMAS
 }
 SCHEDULED_SAFE = frozenset(_SCHEDULED_SAFE)
+READ_ONLY = frozenset(_READ_ONLY)
 ON_DEMAND_GROUPS = frozenset(GROUPS) - ALWAYS_ON
 
 ACTIVATE_TOOL = "activate_tool_group"
@@ -130,6 +145,11 @@ ACTIVATE_SCHEMA: dict[str, Any] = tool_schemas.function_to_tool(activate_tool_gr
 
 def group_of(tool_name: str) -> str | None:
     return _GROUP_OF.get(tool_name)
+
+
+def is_read_only(tool_name: str) -> bool:
+    """True if the tool has no side effects and is safe to run concurrently."""
+    return tool_name in READ_ONLY
 
 
 _KEYWORD_PATTERNS: dict[str, re.Pattern[str]] = {

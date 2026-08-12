@@ -24,15 +24,19 @@ def build_runtime_time_context(
     instant = now or datetime.now(timezone.utc)
     if instant.tzinfo is None:
         raise ValueError("Runtime clock requires a timezone-aware datetime.")
-    utc_now = instant.astimezone(timezone.utc)
+    # Quantized to the minute so the several requests of one tool loop produce an
+    # identical block. At second precision every iteration of a turn sent
+    # different bytes, defeating prompt caching for no practical gain — Kara
+    # never needs sub-minute accuracy to answer a scheduling question.
+    utc_now = instant.astimezone(timezone.utc).replace(second=0, microsecond=0)
     local_now = utc_now.astimezone(zone)
     offset = local_now.strftime("%z")
     offset = f"{offset[:3]}:{offset[3:]}" if len(offset) == 5 else offset
 
     return (
         "RUNTIME CLOCK — internal context refreshed immediately before this model request:\n"
-        f"Local datetime: {local_now.isoformat(timespec='seconds')}\n"
-        f"UTC datetime: {utc_now.isoformat(timespec='seconds')}\n"
+        f"Local datetime: {local_now.isoformat(timespec='minutes')}\n"
+        f"UTC datetime: {utc_now.isoformat(timespec='minutes')}\n"
         f"Local day: {local_now.strftime('%A')}\n"
         f"Timezone: {zone_name}\n"
         f"UTC offset: {offset}\n"

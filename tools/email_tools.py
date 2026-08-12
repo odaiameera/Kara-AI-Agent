@@ -419,3 +419,13 @@ TOOLS = [
 ]
 
 SCHEDULED_SAFE: set[str] = set()
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "email_status",
+    "email_list_mailboxes",
+    "email_list_envelopes",
+    "email_search",
+    "email_read",
+}

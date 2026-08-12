@@ -72,6 +72,63 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", _default_host).rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
+
+def _positive_int_env(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        value = int(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
+
+# Context window Kara asks the model for. Ollama silently truncates a prompt that
+# exceeds num_ctx, and its default is 4096 — smaller than Kara's system prompt
+# plus baseline tool schemas — so leaving this unset drops the head of the
+# conversation, including the safety rules, without any error.
+MODEL_CONTEXT_TOKENS = _positive_int_env("KARA_MODEL_CONTEXT_TOKENS", 32768, minimum=2048)
+
+# Bounds on a single turn. The tool loop is otherwise unbounded: a model that
+# keeps requesting tools spins forever, burning tokens and holding the worker
+# thread with no way to stop it.
+MAX_TOOL_ITERATIONS = _positive_int_env("KARA_MAX_TOOL_ITERATIONS", 25)
+TURN_TIMEOUT_SECONDS = _positive_int_env("KARA_TURN_TIMEOUT_SECONDS", 600, minimum=30)
+# How many consecutive identical tool calls (same name and arguments) count as a
+# stuck loop rather than legitimate repetition.
+MAX_REPEATED_TOOL_CALLS = _positive_int_env("KARA_MAX_REPEATED_TOOL_CALLS", 3, minimum=2)
+
+# Context compaction. Individual tools cap their own output, but nothing capped
+# what entered history *permanently* — one large document read used to sit in
+# context for the rest of the session.
+MAX_TOOL_RESULT_CHARS = _positive_int_env("KARA_MAX_TOOL_RESULT_CHARS", 8000, minimum=500)
+
+
+def _fraction_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if 0.1 <= value <= 0.95 else default
+
+
+# Compact once the conversation would use this share of the context window.
+COMPACT_AT_FRACTION = _fraction_env("KARA_COMPACT_AT_FRACTION", 0.75)
+
+# Transient provider failures (rate limits, gateway errors, dropped connections)
+# used to end the whole turn on the first occurrence.
+PROVIDER_RETRY_ATTEMPTS = _positive_int_env("KARA_PROVIDER_RETRY_ATTEMPTS", 3)
+
+
+def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
+    try:
+        value = float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
+
+PROVIDER_RETRY_BASE_DELAY = _float_env("KARA_PROVIDER_RETRY_BASE_DELAY", 1.0)
+PROVIDER_TIMEOUT_SECONDS = _float_env("KARA_PROVIDER_TIMEOUT_SECONDS", 300.0, minimum=5.0)
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")

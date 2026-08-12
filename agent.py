@@ -9,8 +9,10 @@ STUDY GUIDE
 """
 import embeddings
 import config
+import context_budget
 from gateway import commands as gw_commands
-from kara import KaraSession
+from kara import KaraSession, get_system_instruction
+from tools import registry
 
 CLI_SESSION_KEY = "kara:cli:local"
 
@@ -35,9 +37,17 @@ def main():
     print(
         f" Semantic memory: {'ON (' + config.EMBED_MODEL + ')' if ollama_ok else 'OFF (no reachable embed provider)'}"
     )
+    print(f" Context window: {config.MODEL_CONTEXT_TOKENS} tokens")
     print(" Commands: /models  /model  /model <name>  /new  exit")
     print(" Gateway (24/7): uv run kara-gateway")
     print("=========================================")
+
+    warning = context_budget.check_configured_window(
+        get_system_instruction("cli"),
+        registry.schemas_for_groups(set(registry.ALWAYS_ON)),
+    )
+    if warning:
+        print(f"\n[!] {warning}")
 
     # LEARN: Infinite loop until user types exit/quit or presses Ctrl+D (EOFError).
     while True:

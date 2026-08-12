@@ -19,6 +19,7 @@ from telegram import Update
 from telegram.ext import Application
 
 import config
+import context_budget
 import scheduler
 import scheduled_runner
 import session_db
@@ -61,6 +62,18 @@ def _setup_logging() -> None:
         )
         file_handler.setFormatter(fmt)
         root.addHandler(file_handler)
+
+
+def _warn_on_context_budget() -> None:
+    """Surface a context window too small to hold Kara's own prompt."""
+    import kara
+
+    warning = context_budget.check_configured_window(
+        kara.get_system_instruction("telegram"),
+        kara.registry.schemas_for_groups(set(kara.registry.ALWAYS_ON)),
+    )
+    if warning:
+        log.warning("%s", warning)
 
 
 def _refresh_fingerprint() -> None:
@@ -164,11 +177,19 @@ def main() -> None:
     log.info("Kara gateway starting")
     log.info("Brain: %s", config.BRAIN_DIR)
     log.info("Logs: %s", config.GATEWAY_LOG)
+    log.info("Context window: %s tokens", config.MODEL_CONTEXT_TOKENS)
+    _warn_on_context_budget()
 
     # LEARN: Builder pattern chains .token().post_init().build() to configure the Telegram app.
+    # concurrent_updates is required for /stop to work at all: with the default
+    # sequential processing, a /stop sent during a long turn would not be
+    # dispatched until that turn finished — exactly when it is no longer useful.
+    # gateway.sessions serializes turns per user with a lock, so concurrency here
+    # does not let two messages race the same session.
     app = (
         Application.builder()
         .token(config.TELEGRAM_BOT_TOKEN)
+        .concurrent_updates(True)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()

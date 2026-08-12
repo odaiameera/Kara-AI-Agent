@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import config
+from provider_base import ChatResult
 
 
 class _BrainSandbox(unittest.TestCase):
@@ -109,9 +110,7 @@ class EndSessionTests(_BrainSandbox):
         session.active_groups = set()
         session._persist = Mock()
         session.provider = Mock()
-        session.provider.chat.return_value = {
-            "message": {"role": "assistant", "content": summary}
-        }
+        session.provider.chat.return_value = ChatResult(content=summary)
         return kara, session
 
     def test_summary_is_stored_exactly_once(self) -> None:

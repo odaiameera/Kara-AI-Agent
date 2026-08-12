@@ -81,11 +81,31 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_session_summaries_created
                 ON session_summaries(created_at);
+            CREATE TABLE IF NOT EXISTS turns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_key TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                provider_id TEXT,
+                model TEXT,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                iterations INTEGER NOT NULL DEFAULT 0,
+                tool_calls INTEGER NOT NULL DEFAULT 0,
+                tool_errors INTEGER NOT NULL DEFAULT 0,
+                finish_reason TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_key, id);
+            CREATE INDEX IF NOT EXISTS idx_turns_started ON turns(started_at);
             """
         )
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
         if "tool_call_id" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN tool_call_id TEXT")
+        if "is_error" not in columns:
+            # Lets a failed tool call be counted and shown as a failure rather
+            # than being indistinguishable from a result whose text says "Error".
+            conn.execute("ALTER TABLE messages ADD COLUMN is_error INTEGER DEFAULT 0")
         _backfill_legacy_tool_call_ids_in_conn(conn)
     _initialized = True
 
@@ -177,7 +197,7 @@ def load_messages(session_key: str) -> list[dict[str, Any]]:
     init_db()
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT role, content, tool_calls, tool_name, tool_call_id FROM messages "
+            "SELECT role, content, tool_calls, tool_name, tool_call_id, is_error FROM messages "
             "WHERE session_key=? ORDER BY seq",
             (session_key,),
         ).fetchall()
@@ -194,6 +214,8 @@ def load_messages(session_key: str) -> list[dict[str, Any]]:
             msg["tool_name"] = row["tool_name"]
         if row["tool_call_id"]:
             msg["tool_call_id"] = row["tool_call_id"]
+        if row["is_error"]:
+            msg["is_error"] = True
         messages.append(msg)
     return messages
 
@@ -209,8 +231,8 @@ def append_message(session_key: str, msg: dict[str, Any]) -> None:
         tool_calls = msg.get("tool_calls")
         conn.execute(
             """
-            INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id, is_error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_key,
@@ -220,12 +242,124 @@ def append_message(session_key: str, msg: dict[str, Any]) -> None:
                 json.dumps(tool_calls) if tool_calls else None,
                 msg.get("tool_name"),
                 msg.get("tool_call_id"),
+                1 if msg.get("is_error") else 0,
             ),
         )
         conn.execute(
             "UPDATE sessions SET updated_at=? WHERE session_key=?",
             (_now(), session_key),
         )
+
+
+def replace_messages(session_key: str, messages: list[dict[str, Any]]) -> None:
+    """Atomically swap a session's stored history.
+
+    Used after context compaction: without this the compacted history would live
+    only in memory and be undone by the next gateway restart, which reloads
+    everything from SQLite.
+    """
+    init_db()
+    with _conn() as conn:
+        conn.execute("DELETE FROM messages WHERE session_key=?", (session_key,))
+        for seq, msg in enumerate(messages):
+            tool_calls = msg.get("tool_calls")
+            conn.execute(
+                """
+                INSERT INTO messages (session_key, seq, role, content, tool_calls, tool_name, tool_call_id, is_error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_key,
+                    seq,
+                    msg.get("role", "assistant"),
+                    msg.get("content") or "",
+                    json.dumps(tool_calls) if tool_calls else None,
+                    msg.get("tool_name"),
+                    msg.get("tool_call_id"),
+                    1 if msg.get("is_error") else 0,
+                ),
+            )
+        conn.execute(
+            "UPDATE sessions SET updated_at=? WHERE session_key=?",
+            (_now(), session_key),
+        )
+
+
+# --- Turn telemetry ------------------------------------------------------------
+# Providers report token counts on every response and Kara used to discard them,
+# so there was no way to see what a conversation cost or how hard it worked.
+
+
+def record_turn(
+    session_key: str,
+    *,
+    started_at: str,
+    duration_ms: int,
+    provider_id: str,
+    model: str,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    iterations: int = 0,
+    tool_calls: int = 0,
+    tool_errors: int = 0,
+    finish_reason: str = "stop",
+) -> None:
+    init_db()
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO turns (
+                session_key, started_at, duration_ms, provider_id, model,
+                prompt_tokens, completion_tokens, iterations, tool_calls,
+                tool_errors, finish_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_key,
+                started_at,
+                duration_ms,
+                provider_id,
+                model,
+                prompt_tokens,
+                completion_tokens,
+                iterations,
+                tool_calls,
+                tool_errors,
+                finish_reason,
+            ),
+        )
+
+
+def usage_summary(session_key: str | None = None, *, since: str | None = None) -> dict[str, Any]:
+    """Aggregate turn telemetry, optionally for one session or a time window."""
+    init_db()
+    clauses: list[str] = []
+    params: list[Any] = []
+    if session_key:
+        clauses.append("session_key=?")
+        params.append(session_key)
+    if since:
+        clauses.append("started_at>=?")
+        params.append(since)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with _conn() as conn:
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS turns,
+                   COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                   COALESCE(SUM(tool_calls), 0) AS tool_calls,
+                   COALESCE(SUM(tool_errors), 0) AS tool_errors,
+                   COALESCE(SUM(iterations), 0) AS iterations,
+                   COALESCE(SUM(duration_ms), 0) AS duration_ms
+            FROM turns {where}
+            """,
+            params,
+        ).fetchone()
+    data = dict(row)
+    data["total_tokens"] = data["prompt_tokens"] + data["completion_tokens"]
+    return data
 
 
 def mark_interrupted(session_key: str) -> None:

@@ -11,13 +11,12 @@ STUDY GUIDE
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 
 import config
-from provider_base import ProviderError
+from provider_base import ProviderError, is_retryable_status
 from providers import Provider
 
 
@@ -71,11 +70,17 @@ def chat(
     temperature: float = 0.0,
 ) -> dict[str, Any]:
     """Call Ollama ``/api/chat`` (non-streaming). Returns the full response object."""
+    # num_ctx must be explicit: Ollama defaults to 4096 tokens and silently drops
+    # whatever does not fit rather than failing, which would quietly discard the
+    # head of the prompt — the system prompt and its safety rules.
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature},
+        "options": {
+            "temperature": temperature,
+            "num_ctx": config.MODEL_CONTEXT_TOKENS,
+        },
     }
     if tools:
         payload["tools"] = tools
@@ -91,12 +96,17 @@ def chat(
         return resp.json()
     except httpx.HTTPStatusError as e:
         detail = e.response.text[:300] if e.response.text else str(e)
+        status = e.response.status_code
         raise OllamaError(
-            f"Ollama chat HTTP {e.response.status_code} ({provider.name}): {detail}"
+            f"Ollama chat HTTP {status} ({provider.name}): {detail}",
+            retryable=is_retryable_status(status),
+            status_code=status,
         ) from e
     except httpx.RequestError as e:
+        # Connection resets and timeouts are transient by nature.
         raise OllamaError(
-            f"Could not reach {provider.name} at {provider.host}: {e}"
+            f"Could not reach {provider.name} at {provider.host}: {e}",
+            retryable=True,
         ) from e
 
 
@@ -150,16 +160,5 @@ def embed_batch(
     return [embed(provider, t, model=model) for t in texts]
 
 
-def parse_tool_arguments(raw: Any) -> dict[str, Any]:
-    """Normalize tool call arguments from Ollama (object or JSON string)."""
-    if raw is None:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
+# Tool-argument normalization now lives in provider_base.parse_tool_arguments,
+# shared by every adapter rather than duplicated per transport.

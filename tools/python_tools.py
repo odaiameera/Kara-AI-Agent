@@ -328,3 +328,10 @@ SCHEDULED_SAFE = {
     "inspect_python_file",
     "validate_python_file",
 }
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "inspect_python_file",
+    "validate_python_file",
+}

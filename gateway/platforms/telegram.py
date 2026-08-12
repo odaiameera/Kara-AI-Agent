@@ -123,7 +123,8 @@ def _start_reply(user_id: int) -> str:
     return (
         f"Kara online.\nProvider: {session.provider_name}\nModel: {session.model_name}\n"
         f"Semantic memory: {ollama}{resumed}\n"
-        "Commands: /providers  /provider <id>  /models  /model  /model <provider>/<model>  /new  /restart"
+        "Commands: /providers  /provider <id>  /models  /model  /model <provider>/<model>\n"
+        "          /new  /stop  /usage  /context  /restart"
     )
 
 
@@ -232,6 +233,39 @@ async def codex_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await _reply(update, gw_commands.handle_command(session, "/codex-status") or "")
 
 
+def plain_cmd(command: str):
+    """Build a handler that runs a shared slash command and replies with its text."""
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if not user or not _is_allowed(user.id):
+            await _reply(update, "Unauthorized.")
+            return
+        key = session_db.build_session_key("telegram", user.id)
+        session = gw_sessions.get_session(key, channel="telegram")
+        reply = await asyncio.to_thread(gw_commands.handle_command, session, command)
+        await _reply(update, reply or "")
+
+    return handler
+
+
+async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Cancel a turn that is already running.
+
+    Deliberately does not take the per-session turn lock — the whole point is to
+    reach a session that is currently holding it.
+    """
+    user = update.effective_user
+    if not user or not _is_allowed(user.id):
+        await _reply(update, "Unauthorized.")
+        return
+    key = session_db.build_session_key("telegram", user.id)
+    if gw_sessions.request_stop(key):
+        await _reply(update, "Stopping — I'll wrap up at the next safe point.")
+    else:
+        await _reply(update, "Nothing is running.")
+
+
 def _chat_reply(user_id: int, chat_id: int | None, text: str) -> tuple[str, bool]:
     # LEARN: Returns (reply, is_rich). Slash commands are plain, terse output;
     # only Kara's LLM answers carry Markdown worth rendering as rich HTML.
@@ -265,6 +299,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text = update.message.text.strip()
     chat = update.effective_chat
 
+    # One turn at a time per user. Updates are processed concurrently so /stop
+    # can arrive mid-turn, which means a second ordinary message would otherwise
+    # race the first through the same KaraSession.
+    lock = gw_sessions.turn_lock(session_db.build_session_key("telegram", user.id))
+    if not lock.acquire(blocking=False):
+        await _reply(
+            update,
+            "I'm still working on your previous message. Send /stop to cancel it.",
+        )
+        return
+
     try:
         async with _typing_indicator(context, chat.id if chat else None):
             # LEARN: to_thread runs blocking sync code (session setup + tool loop) in a
@@ -279,6 +324,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except Exception as e:
         log.exception("Error handling message")
         await _reply(update, f"Error: {e}")
+    finally:
+        lock.release()
 
 
 def register_handlers(app: Application) -> None:
@@ -292,4 +339,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("restart", restart_cmd))
     app.add_handler(CommandHandler("auth", auth_cmd))
     app.add_handler(CommandHandler("codex_status", codex_status_cmd))
+    app.add_handler(CommandHandler("stop", stop_cmd))
+    app.add_handler(CommandHandler("usage", plain_cmd("/usage")))
+    app.add_handler(CommandHandler("context", plain_cmd("/context")))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

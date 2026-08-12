@@ -15,7 +15,13 @@ import httpx
 
 import auth_store
 import codex_auth
-from provider_base import ProviderError
+from provider_base import (
+    ChatResult,
+    ProviderError,
+    Usage,
+    is_retryable_status,
+    tool_calls_from_openai_shape,
+)
 from providers import Provider
 
 
@@ -104,7 +110,13 @@ class OpenAICodexProvider:
         for message in messages:
             role = str(message.get("role") or "user")
             content = str(message.get("content") or "")
-            if role == "system":
+            if role == "system" and message.get("ephemeral"):
+                # A trailing note (the runtime clock) rather than the real system
+                # prompt. It must not overwrite `instructions`, and keeping it out
+                # of that field is also what leaves the cacheable prefix stable.
+                if content:
+                    items.append({"role": "user", "content": content})
+            elif role == "system":
                 instructions = content or instructions
             elif role == "tool":
                 call_id = str(message.get("tool_call_id") or "").strip()
@@ -176,7 +188,7 @@ class OpenAICodexProvider:
         tools: list[dict[str, Any]] | None = None,
         *,
         temperature: float = 0.0,
-    ) -> dict[str, Any]:
+    ) -> ChatResult:
         del temperature  # ChatGPT Codex rejects the chat-completions temperature dial.
         creds = self._creds()
         instructions, input_items = self._responses_request(messages)
@@ -195,6 +207,8 @@ class OpenAICodexProvider:
 
         text_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
+        usage = Usage()
+        finish_reason = "stop"
         url = f"{creds['base_url']}/responses"
         try:
             with httpx.stream(
@@ -206,7 +220,9 @@ class OpenAICodexProvider:
                     # API error is shown instead of masking it with ResponseNotRead.
                     response.read()
                     raise ProviderError(
-                        f"OpenAI Codex chat HTTP {response.status_code}: {response.text[:500]}"
+                        f"OpenAI Codex chat HTTP {response.status_code}: {response.text[:500]}",
+                        retryable=is_retryable_status(response.status_code),
+                        status_code=response.status_code,
                     )
                 for raw_line in response.iter_lines():
                     if not raw_line or not raw_line.startswith("data: "):
@@ -231,17 +247,45 @@ class OpenAICodexProvider:
                                     },
                                 }
                             )
+                    elif kind == "response.completed":
+                        # The terminal event carries token accounting. Kara used
+                        # to drop this event entirely, which is why no usage data
+                        # existed for the Codex provider.
+                        response_body = event.get("response") or {}
+                        usage = self._usage_from_response(response_body)
+                        finish_reason = str(
+                            response_body.get("incomplete_details", {}).get("reason")
+                            or "stop"
+                        )
                     elif kind in {"response.failed", "error"}:
                         raise ProviderError(f"OpenAI Codex response failed: {event.get('error') or event}")
         except ProviderError:
             raise
+        except httpx.RequestError as exc:
+            raise ProviderError(
+                f"Could not reach OpenAI Codex: {exc}", retryable=True
+            ) from exc
         except Exception as exc:
             raise ProviderError(f"OpenAI Codex chat request failed: {exc}") from exc
 
-        message: dict[str, Any] = {"role": "assistant", "content": "".join(text_parts)}
-        if tool_calls:
-            message["tool_calls"] = tool_calls
-        return {"message": message}
+        calls = tool_calls_from_openai_shape(tool_calls)
+        return ChatResult(
+            content="".join(text_parts),
+            tool_calls=calls,
+            usage=usage,
+            finish_reason="tool_calls" if calls else finish_reason,
+            raw={"tool_calls": tool_calls},
+        )
+
+    @staticmethod
+    def _usage_from_response(response_body: dict[str, Any]) -> Usage:
+        raw = response_body.get("usage") or {}
+        if not isinstance(raw, dict):
+            return Usage()
+        return Usage(
+            prompt_tokens=int(raw.get("input_tokens") or 0),
+            completion_tokens=int(raw.get("output_tokens") or 0),
+        )
 
     def embed(self, text: str, model: str | None = None) -> list[float]:
         del text, model

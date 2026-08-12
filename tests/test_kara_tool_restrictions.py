@@ -4,33 +4,20 @@ import unittest
 from unittest.mock import Mock, patch
 
 import kara
+from provider_base import ChatResult
+from tests.support import FakeProvider as _FakeProvider
+from tests.support import make_session, tool_turn as _tool_turn
 from tools import registry
-
-
-class _FakeProvider:
-    def __init__(self, responses=None) -> None:
-        self.responses = list(responses or [])
-        self.tool_batches: list[list[dict] | None] = []
-
-    def chat(self, model, messages, tools=None):
-        self.tool_batches.append(tools)
-        if self.responses:
-            return self.responses.pop(0)
-        return {"message": {"role": "assistant", "content": "ok"}}
 
 
 class KaraToolRestrictionTests(unittest.TestCase):
     def _session(self, provider: _FakeProvider, allowed: set[str]):
-        session = kara.KaraSession.__new__(kara.KaraSession)
-        session.session_key = "scheduled:test"
-        session.channel = "scheduled"
-        session.model = "test-model"
-        session.provider = provider
-        session.messages = []
-        session.allowed_tool_names = frozenset(allowed)
-        session.active_groups = set(registry.ALWAYS_ON)
-        session._persist = Mock()
-        return session
+        return make_session(
+            provider,
+            session_key="scheduled:test",
+            channel="scheduled",
+            allowed_tool_names=allowed,
+        )
 
     def test_chat_exposes_only_explicitly_allowed_tools(self) -> None:
         provider = _FakeProvider()
@@ -42,22 +29,8 @@ class KaraToolRestrictionTests(unittest.TestCase):
     def test_hallucinated_disallowed_tool_is_not_executed(self) -> None:
         provider = _FakeProvider(
             [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "id": "call-1",
-                                "function": {
-                                    "name": "write_file",
-                                    "arguments": {"path": "x", "content": "bad"},
-                                },
-                            }
-                        ],
-                    }
-                },
-                {"message": {"role": "assistant", "content": "Handled safely."}},
+                _tool_turn("write_file", {"path": "x", "content": "bad"}),
+                ChatResult(content="Handled safely."),
             ]
         )
         session = self._session(provider, {"read_file"})
@@ -83,22 +56,8 @@ class KaraToolRestrictionTests(unittest.TestCase):
     def test_restricted_session_cannot_activate_its_way_to_a_write_tool(self) -> None:
         provider = _FakeProvider(
             [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "id": "call-1",
-                                "function": {
-                                    "name": registry.ACTIVATE_TOOL,
-                                    "arguments": {"group": "file"},
-                                },
-                            }
-                        ],
-                    }
-                },
-                {"message": {"role": "assistant", "content": "Done."}},
+                _tool_turn(registry.ACTIVATE_TOOL, {"group": "file"}),
+                ChatResult(content="Done."),
             ]
         )
         session = self._session(provider, {"read_file"})
@@ -115,16 +74,7 @@ class KaraToolRestrictionTests(unittest.TestCase):
 
 class KaraToolGatingTests(unittest.TestCase):
     def _session(self, provider: _FakeProvider):
-        session = kara.KaraSession.__new__(kara.KaraSession)
-        session.session_key = "cli:test"
-        session.channel = "cli"
-        session.model = "test-model"
-        session.provider = provider
-        session.messages = []
-        session.allowed_tool_names = None
-        session.active_groups = set(registry.ALWAYS_ON)
-        session._persist = Mock()
-        return session
+        return make_session(provider)
 
     def _run(self, session, text: str) -> None:
         with (
@@ -155,22 +105,8 @@ class KaraToolGatingTests(unittest.TestCase):
     def test_model_can_activate_a_group_the_keywords_missed(self) -> None:
         provider = _FakeProvider(
             [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "id": "call-1",
-                                "function": {
-                                    "name": registry.ACTIVATE_TOOL,
-                                    "arguments": {"group": "email"},
-                                },
-                            }
-                        ],
-                    }
-                },
-                {"message": {"role": "assistant", "content": "Done."}},
+                _tool_turn(registry.ACTIVATE_TOOL, {"group": "email"}),
+                ChatResult(content="Done."),
             ]
         )
         session = self._session(provider)

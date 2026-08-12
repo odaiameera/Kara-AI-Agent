@@ -163,7 +163,13 @@ class TestCodexProvider(TempBrainMixin, unittest.TestCase):
         ) as mock_stream:
             result = provider.chat("gpt-5.6-terra", [{"role": "system", "content": "Be concise."}, {"role": "user", "content": "Hi"}])
 
-        self.assertEqual(result["message"], {"role": "assistant", "content": "Hello Kara"})
+        self.assertEqual(result.role, "assistant")
+        self.assertEqual(result.content, "Hello Kara")
+        self.assertEqual(result.tool_calls, ())
+        self.assertFalse(result.wants_tools)
+        self.assertEqual(
+            result.to_message(), {"role": "assistant", "content": "Hello Kara"}
+        )
         _, kwargs = mock_stream.call_args
         self.assertTrue(kwargs["json"]["stream"])
         self.assertEqual(kwargs["json"]["instructions"], "Be concise.")
@@ -214,10 +220,16 @@ class TestCodexProvider(TempBrainMixin, unittest.TestCase):
         ) as mock_stream:
             result = provider.chat("gpt-5.6-terra", [{"role": "user", "content": "Recall Kara"}], tools=tools)
 
-        call = result["message"]["tool_calls"][0]
-        self.assertEqual(call["id"], "call_123")
-        self.assertEqual(call["function"]["name"], "search_memory")
-        self.assertEqual(call["function"]["arguments"], '{"query":"Kara"}')
+        self.assertTrue(result.wants_tools)
+        self.assertEqual(result.finish_reason, "tool_calls")
+        call = result.tool_calls[0]
+        self.assertEqual(call.id, "call_123")
+        self.assertEqual(call.name, "search_memory")
+        self.assertEqual(call.arguments, {"query": "Kara"})
+        # Arguments round-trip to history as a JSON string, which is what the
+        # Responses replay path requires.
+        wire = result.to_message()["tool_calls"][0]
+        self.assertEqual(wire["function"]["arguments"], '{"query": "Kara"}')
         _, kwargs = mock_stream.call_args
         self.assertEqual(kwargs["json"]["tools"][0]["name"], "search_memory")
 

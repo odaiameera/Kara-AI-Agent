@@ -1304,3 +1304,27 @@ TOOLS = [
 ]
 
 SCHEDULED_SAFE: set[str] = set()
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "github_status",
+    "github_search_repositories",
+    "github_get_repository",
+    "github_list_repository_contents",
+    "github_read_repository_file",
+    "github_search_code",
+    "github_list_branches",
+    "github_list_commits",
+    "github_list_issues",
+    "github_get_issue",
+    "github_list_issue_comments",
+    "github_search_issues",
+    "github_list_pull_requests",
+    "github_get_pull_request",
+    "github_get_pull_request_diff",
+    "github_list_pull_request_files",
+    "github_list_workflow_runs",
+    "github_get_workflow_run",
+    "github_list_notifications",
+}
