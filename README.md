@@ -6,7 +6,7 @@ Kara is a local-first personal AI agent for CLI and Telegram. She combines confi
 
 ## What Kara can do
 
-- Chat through configurable providers, including Ollama and OpenAI Codex OAuth.
+- Chat through configurable providers: Ollama, OpenAI Codex OAuth, and any OpenAI-compatible endpoint (OpenAI, Groq, OpenRouter, DeepSeek, vLLM, LM Studio) configured from `.env` alone.
 - Run continuously through a Telegram gateway with SQLite-backed conversation history.
 - Maintain a local brain: always-in-context core memory, durable learnings, session logs, and hybrid semantic/keyword recall.
 - Use optional Mnemosyne MCP memory as an additional structured memory surface.
@@ -207,12 +207,33 @@ Real OCR integration tests skip when no supported OCR backend is installed.
 
 ## Providers and models
 
-Kara uses a small provider abstraction, so provider-specific authentication does not leak into the agent loop. Ollama supports cloud or local operation; OpenAI Codex OAuth is also supported when configured.
+Kara uses a small provider abstraction, so provider-specific authentication does not leak into the agent loop. Every adapter returns a `ChatResult` — content, tool calls, token usage, finish reason — so nothing above the provider layer knows which backend answered.
+
+Three adapters cover the field:
+
+| Type | Backends |
+|---|---|
+| `ollama` | Ollama Cloud and local Ollama |
+| `openai-codex` | ChatGPT Codex over OAuth |
+| `openai-compatible` | Anything speaking OpenAI `/chat/completions` — OpenAI, Groq, Together, OpenRouter, DeepSeek, Mistral, Fireworks, vLLM, LM Studio |
+
+Adding a backend of the third kind needs no code. Set a base URL in `.env` and Kara discovers it:
+
+```shell
+KARA_PROVIDER_GROQ_BASE_URL=https://api.groq.com/openai/v1
+KARA_PROVIDER_GROQ_API_KEY=gsk_...
+KARA_PROVIDER_GROQ_MODEL=llama-3.3-70b-versatile
+```
+
+That becomes the provider `groq`, usable via `/provider groq`. `KARA_PROVIDER_<NAME>_API_KEY` is optional — local servers need none.
 
 Telegram/CLI commands include:
 
 - `/providers` — list configured providers
 - `/provider <id> [model]` — switch provider, optionally with a model
+- `/usage` — tokens, tool calls and time for this session and today
+- `/context` — how full the context window is and when compaction starts
+- `/stop` — cancel a turn that is still running
 - `/models` — list models across providers
 - `/model [provider/model-or-name]` — inspect or switch model
 - `/new` — start a fresh chat while preserving long-term memory

@@ -127,6 +127,7 @@ def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
 
 
 PROVIDER_RETRY_BASE_DELAY = _float_env("KARA_PROVIDER_RETRY_BASE_DELAY", 1.0)
+PROVIDER_TIMEOUT_SECONDS = _float_env("KARA_PROVIDER_TIMEOUT_SECONDS", 300.0, minimum=5.0)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 

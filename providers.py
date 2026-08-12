@@ -37,10 +37,12 @@ PROVIDERS_FILE = config.BRAIN_DIR / "providers.json"
 class Provider:
     id: str
     name: str
-    type: str  # "ollama" for now; extensible later
+    type: str  # "ollama" | "openai-codex" | "openai-compatible"
     host: str
     api_key: str | None = None
     api_key_env: str | None = None
+    # Preferred model for this backend, when the environment names one.
+    default_model: str | None = None
 
     # LEARN: @property defines a method accessed like an attribute (no parentheses).
     @property
@@ -101,6 +103,8 @@ def _discover_provider_defs_from_env() -> list[dict]:
         )
         seen_ids.add("ollama-local")
 
+    defs.extend(_discover_openai_compatible_defs(seen_ids))
+
     # OpenAI Codex is OAuth-backed, so it does not have an API key env var.
     # Credentials live in brain/auth.json after `uv run python codex_auth.py login`.
     if "openai-codex" not in seen_ids:
@@ -114,6 +118,49 @@ def _discover_provider_defs_from_env() -> list[dict]:
             }
         )
 
+    return defs
+
+
+def _discover_openai_compatible_defs(seen_ids: set[str]) -> list[dict]:
+    """Discover generic OpenAI-compatible backends from the environment.
+
+    Convention, so a new backend needs no code:
+
+        KARA_PROVIDER_<NAME>_BASE_URL   required — e.g. https://api.groq.com/openai/v1
+        KARA_PROVIDER_<NAME>_API_KEY    optional — omit for local servers
+        KARA_PROVIDER_<NAME>_MODEL      optional — default model for /provider
+
+    Covers OpenAI, Groq, Together, OpenRouter, DeepSeek, Mistral, vLLM, and
+    LM Studio, all of which speak the same chat-completions contract.
+    """
+    prefix, suffix = "KARA_PROVIDER_", "_BASE_URL"
+    defs: list[dict] = []
+    for env_name, value in os.environ.items():
+        if not env_name.startswith(prefix) or not env_name.endswith(suffix):
+            continue
+        base_url = value.strip().rstrip("/")
+        if not base_url:
+            continue
+
+        raw_name = env_name[len(prefix) : -len(suffix)]
+        provider_id = raw_name.lower().replace("_", "-")
+        if not provider_id or provider_id in seen_ids:
+            continue
+
+        key_env = f"{prefix}{raw_name}_API_KEY"
+        defs.append(
+            {
+                "id": provider_id,
+                "name": raw_name.replace("_", " ").title(),
+                "type": "openai-compatible",
+                "host": base_url,
+                # Only claim a key env var if one is actually set; local servers
+                # need none and must not be reported as missing credentials.
+                "api_key_env": key_env if os.getenv(key_env, "").strip() else None,
+                "default_model": os.getenv(f"{prefix}{raw_name}_MODEL", "").strip() or None,
+            }
+        )
+        seen_ids.add(provider_id)
     return defs
 
 
@@ -157,6 +204,7 @@ def load_providers() -> list[Provider]:
                 host=item["host"].rstrip("/"),
                 api_key=_resolve_api_key(api_key_env),
                 api_key_env=api_key_env,
+                default_model=item.get("default_model"),
             )
         )
     return providers
@@ -199,8 +247,10 @@ def to_chat_provider(provider: Provider) -> ChatProvider:
         from providers_codex import OpenAICodexProvider
 
         return OpenAICodexProvider(provider)
-    # Future: providers_gemini.GeminiProvider(provider)
-    # Future: providers_openai.OpenAIProvider(provider)
+    if provider.type == "openai-compatible":
+        from providers_openai_compatible import OpenAICompatibleProvider
+
+        return OpenAICompatibleProvider(provider)
     raise RuntimeError(f"Unsupported provider type: {provider.type}")
 
 

@@ -83,7 +83,14 @@ def default_model_for_provider(provider_id: str) -> str:
     record = providers.get_provider(provider_id)
     if record is None:
         raise ValueError(f"Unknown provider '{provider_id}'.")
-    return PROVIDER_DEFAULT_MODELS.get(provider_id) or PROVIDER_DEFAULT_MODELS.get(record.type) or DEFAULT_MODEL
+    # A generically-configured backend names its own default in .env; Kara has no
+    # built-in knowledge of what models an arbitrary endpoint serves.
+    return (
+        record.default_model
+        or PROVIDER_DEFAULT_MODELS.get(provider_id)
+        or PROVIDER_DEFAULT_MODELS.get(record.type)
+        or DEFAULT_MODEL
+    )
 
 
 def select_provider(provider_id: str, model: str | None = None) -> tuple[str, str]:
