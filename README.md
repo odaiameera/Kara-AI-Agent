@@ -326,7 +326,9 @@ The scheduler is backed by `brain/scheduler.db`. Jobs survive gateway and machin
 
 Schedules accept an offset-aware ISO timestamp, a strict relative delay such as `in 15m`, or five-field cron such as `0 8 * * *`. Cron schedules use the supplied IANA timezone and follow daylight-saving changes. A live local/UTC clock is injected into each model request.
 
-Autonomous scheduled agent jobs are deliberately restricted to observational tools: web, memory search, file/document/SQLite/Python reads, and Windows inventory. They cannot write files, send email, drive the desktop, execute tests, mutate memory, or create jobs.
+Autonomous scheduled agent jobs are deliberately restricted to observational tools: web, memory search, file/Office/PDF/OCR/SQLite/Python reads, and Windows inventory. They cannot write files, send email, drive the desktop, execute tests, mutate memory, or create jobs.
+
+That allowlist is declared per module as `SCHEDULED_SAFE` and pinned by an exact-match test, so it cannot widen without the change being visible in a diff.
 
 ## GitHub
 

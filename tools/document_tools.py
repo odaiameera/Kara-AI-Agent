@@ -703,7 +703,10 @@ TOOLS = [
     ocr_image,
 ]
 
-SCHEDULED_SAFE: set[str] = set()
+SCHEDULED_SAFE = {
+    "read_pdf",
+    "ocr_image",
+}
 
 # Tools with no side effects. Used to decide what may run concurrently; a
 # superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.

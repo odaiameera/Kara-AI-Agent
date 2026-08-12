@@ -46,6 +46,10 @@ class ScheduledSafeBoundaryTests(unittest.TestCase):
         "search_files",
         "file_info",
         "read_office_file",
+        # PDF and OCR extraction: read-only like read_office_file, but omitted
+        # when this list was written because document_tools.py did not exist yet.
+        "read_pdf",
+        "ocr_image",
         "inspect_sqlite_database",
         "query_sqlite_database",
         "inspect_python_file",
