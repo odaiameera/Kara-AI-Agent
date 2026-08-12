@@ -341,3 +341,13 @@ SCHEDULED_SAFE = {
     "list_scheduled_tasks",
     "disk_usage",
 }
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "system_overview",
+    "list_processes",
+    "list_services",
+    "list_scheduled_tasks",
+    "disk_usage",
+}

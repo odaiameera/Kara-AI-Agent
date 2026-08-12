@@ -35,14 +35,34 @@ class KaraRuntimeClockInjectionTests(unittest.TestCase):
             session._chat(with_tools=False)
             session._chat(with_tools=False)
 
+        # History is never mutated by the clock.
         self.assertEqual(session.messages[0]["content"], "BASE SYSTEM")
-        self.assertEqual(
-            provider.requests[0][0]["content"], "BASE SYSTEM\n\nCLOCK ONE"
-        )
-        self.assertEqual(
-            provider.requests[1][0]["content"], "BASE SYSTEM\n\nCLOCK TWO"
-        )
-        self.assertNotIn("CLOCK ONE", provider.requests[1][0]["content"])
+
+        # The clock is a trailing message, refreshed each request.
+        self.assertEqual(provider.requests[0][-1]["content"], "CLOCK ONE")
+        self.assertEqual(provider.requests[1][-1]["content"], "CLOCK TWO")
+        self.assertTrue(provider.requests[0][-1]["ephemeral"])
+
+    def test_the_cacheable_prefix_is_identical_between_requests(self) -> None:
+        """The clock used to rewrite the system message on every single request."""
+        provider = _CapturingProvider()
+        session = make_session(provider)
+        session.messages = [
+            {"role": "system", "content": "BASE SYSTEM"},
+            {"role": "user", "content": "hello"},
+        ]
+
+        with patch.object(
+            kara.time_context,
+            "build_runtime_time_context",
+            side_effect=["CLOCK ONE", "CLOCK TWO"],
+        ):
+            session._chat(with_tools=False)
+            session._chat(with_tools=False)
+
+        first, second = provider.requests
+        self.assertEqual(first[:-1], second[:-1], "prefix must be byte-identical")
+        self.assertNotIn("CLOCK", first[0]["content"])
 
 
 if __name__ == "__main__":

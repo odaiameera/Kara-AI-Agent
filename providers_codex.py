@@ -110,7 +110,13 @@ class OpenAICodexProvider:
         for message in messages:
             role = str(message.get("role") or "user")
             content = str(message.get("content") or "")
-            if role == "system":
+            if role == "system" and message.get("ephemeral"):
+                # A trailing note (the runtime clock) rather than the real system
+                # prompt. It must not overwrite `instructions`, and keeping it out
+                # of that field is also what leaves the cacheable prefix stable.
+                if content:
+                    items.append({"role": "user", "content": content})
+            elif role == "system":
                 instructions = content or instructions
             elif role == "tool":
                 call_id = str(message.get("tool_call_id") or "").strip()

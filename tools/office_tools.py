@@ -574,3 +574,9 @@ TOOLS = [
 SCHEDULED_SAFE = {
     "read_office_file",
 }
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "read_office_file",
+}

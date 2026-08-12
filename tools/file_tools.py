@@ -509,3 +509,12 @@ SCHEDULED_SAFE = {
     "search_files",
     "file_info",
 }
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "list_directory",
+    "read_file",
+    "search_files",
+    "file_info",
+}

@@ -451,3 +451,10 @@ SCHEDULED_SAFE = {
     "web_search",
     "web_fetch",
 }
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "web_search",
+    "web_fetch",
+}

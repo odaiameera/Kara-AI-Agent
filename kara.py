@@ -13,6 +13,7 @@ import json
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -38,6 +39,11 @@ log = logging.getLogger("kara.session")
 # Marks a tool message as a failure. The model can key off it, and telemetry can
 # count it, without guessing from the prose.
 TOOL_ERROR_PREFIX = "[tool error]"
+
+# Upper bound on concurrent read-only tools in one batch. Enough to collapse a
+# fan-out of API reads into roughly one round trip without opening a swarm of
+# connections.
+MAX_PARALLEL_TOOLS = 6
 
 # LEARN: Type alias — documents that callbacks take (tool_name, args_dict) and return nothing.
 ToolCallback = Callable[[str, dict], None]
@@ -392,22 +398,20 @@ class KaraSession:
     def _chat(self, *, with_tools: bool = True) -> ChatResult:
         tools = self._visible_schemas() if with_tools else None
         request_messages = [dict(message) for message in self.messages]
-        runtime_clock = time_context.build_runtime_time_context()
-        system_index = next(
-            (
-                index
-                for index, message in enumerate(request_messages)
-                if message.get("role") == "system"
-            ),
-            None,
+        # The clock goes at the *end*, not merged into the system prompt. Merged,
+        # it rewrote the first message on every request, so the cacheable prefix
+        # differed each time and prompt caching could never engage on any
+        # provider that offers it. Appending leaves everything before it
+        # byte-identical between requests.
+        request_messages.append(
+            {
+                "role": "system",
+                "content": time_context.build_runtime_time_context(),
+                # Adapters place this wherever their API accepts a trailing
+                # note. It is never part of stored history.
+                "ephemeral": True,
+            }
         )
-        if system_index is None:
-            request_messages.insert(
-                0, {"role": "system", "content": runtime_clock}
-            )
-        else:
-            base = str(request_messages[system_index].get("content") or "").rstrip()
-            request_messages[system_index]["content"] = f"{base}\n\n{runtime_clock}"
         result = self._call_provider(request_messages, tools if with_tools else None)
         if result.usage.prompt_tokens:
             self._last_prompt_tokens = result.usage.prompt_tokens
@@ -569,26 +573,53 @@ class KaraSession:
                 budget.finish_reason = result_turn.finish_reason
                 return result_turn.content.strip() or "(No response from model.)"
 
-            for call in result_turn.tool_calls:
-                self._check_cancelled(last_tool)
+            calls = result_turn.tool_calls
+            self._check_cancelled(last_tool)
+            for call in calls:
                 budget.record_call(call.name, call.arguments)
-                last_tool = call.name
-                budget.tool_calls += 1
-                if self._execute_tool_call(call, on_tool_call):
-                    budget.tool_errors += 1
+            last_tool = calls[-1].name
+            budget.tool_calls += len(calls)
 
-    def _execute_tool_call(self, call, on_tool_call: ToolCallback | None) -> bool:
-        """Run one tool call and append its result to history.
+            if len(calls) > 1 and all(
+                registry.is_read_only(call.name) for call in calls
+            ):
+                budget.tool_errors += self._execute_calls_in_parallel(
+                    calls, on_tool_call
+                )
+            else:
+                for call in calls:
+                    self._check_cancelled(call.name)
+                    if self._execute_tool_call(call, on_tool_call):
+                        budget.tool_errors += 1
 
-        Returns True if the call failed. Failures are marked explicitly rather
-        than only described in prose: an error string is otherwise
-        indistinguishable — to the model and to telemetry — from a tool that
-        legitimately returned text containing the word "Error".
+    def _execute_calls_in_parallel(self, calls, on_tool_call) -> int:
+        """Run a batch of read-only calls concurrently. Returns the failure count.
+
+        Only ever used when every call in the batch is side-effect free, so
+        concurrency cannot reorder writes. Results are appended in request order
+        regardless of completion order, because tool messages must line up with
+        the tool_calls that asked for them.
+        """
+        with ThreadPoolExecutor(max_workers=min(len(calls), MAX_PARALLEL_TOOLS)) as pool:
+            outcomes = list(pool.map(lambda call: self._run_tool(call), calls))
+
+        failures = 0
+        for call, (content, failed) in zip(calls, outcomes):
+            if on_tool_call:
+                on_tool_call(call.name, call.arguments)
+            self._append_tool_message(call, content, failed)
+            failures += int(failed)
+        return failures
+
+    def _run_tool(self, call) -> tuple[str, bool]:
+        """Run one tool and return ``(content, failed)`` without touching history.
+
+        Kept free of session mutation so a batch of read-only calls can run on a
+        thread pool; appending results stays on the calling thread and in request
+        order.
         """
         func_name = call.name
         args = call.arguments
-        if on_tool_call:
-            on_tool_call(func_name, args)
 
         failed = True
         if (
@@ -597,6 +628,7 @@ class KaraSession:
         ):
             result = f"Tool {func_name} is not allowed in this session."
         elif func_name == registry.ACTIVATE_TOOL:
+            # Mutates session state, so it is never read-only and never parallel.
             result = self._activate_tool_group(**args)
             failed = str(result).startswith("Error:")
         elif (fn := TOOL_REGISTRY.get(func_name)) is None:
@@ -610,23 +642,38 @@ class KaraSession:
                 result = f"{type(e).__name__}: {e}"
                 log.warning("Tool %s raised: %s", func_name, e)
 
-        content = str(result)
-        if failed:
-            content = f"{TOOL_ERROR_PREFIX} {func_name}: {content}"
+        return str(result), failed
 
-        tool_msg = {
+    def _append_tool_message(self, call, content: str, failed: bool) -> None:
+        """Record one tool result.
+
+        Failures are marked explicitly rather than only described in prose: an
+        error string is otherwise indistinguishable — to the model and to
+        telemetry — from a tool that legitimately returned the word "Error".
+        """
+        if failed:
+            content = f"{TOOL_ERROR_PREFIX} {call.name}: {content}"
+
+        tool_msg: dict[str, Any] = {
             "role": "tool",
             # Capped here, not just by between-turn compaction: this result goes
             # straight into the next request, so a single oversized one could
             # overrun the window before compaction ever sees it.
             "content": context_budget.cap_tool_result(content),
-            "tool_name": func_name,
+            "tool_name": call.name,
             "tool_call_id": call.id,
         }
         if failed:
             tool_msg["is_error"] = True
         self.messages.append(tool_msg)
         self._persist(tool_msg)
+
+    def _execute_tool_call(self, call, on_tool_call: ToolCallback | None) -> bool:
+        """Run one tool call and append its result. Returns True if it failed."""
+        if on_tool_call:
+            on_tool_call(call.name, call.arguments)
+        content, failed = self._run_tool(call)
+        self._append_tool_message(call, content, failed)
         return failed
 
     def end_session(self) -> None:

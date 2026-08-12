@@ -130,3 +130,10 @@ SCHEDULED_SAFE = {
     "search_obsidian",
     "read_obsidian_note",
 }
+
+# Tools with no side effects. Used to decide what may run concurrently; a
+# superset of SCHEDULED_SAFE, which is a separate policy about unattended runs.
+READ_ONLY = {
+    "search_obsidian",
+    "read_obsidian_note",
+}
