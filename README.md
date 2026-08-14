@@ -499,8 +499,28 @@ Useful scripts are in `scripts/`, including gateway install/start/stop helpers a
 
 > **Note:** `pyproject.toml` declares `[project.scripts]` (`kara`, `kara-gateway`, `kara-update`, `kara-install`, `kara-codex-auth`, `kara-github-auth`), but the project has no `[build-system]`, so uv treats it as a virtual project and never installs those entry points. `uv run kara-gateway` currently fails with "Failed to spawn". Use the commands above.
 
-## License / status
+## Acknowledgements
+
+Kara's architecture borrows ideas from a few projects, with thanks:
+
+- **[Hermes](https://github.com/nousresearch/hermes-agent)** — the single long-lived gateway process, and the general shape of the desktop-control surface. Kara's implementation differs (it drives `cua-driver`'s one-shot CLI rather than a full backend) and shares no code.
+- **[Mnemosyne](https://github.com/mnemosyne-oss/mnemosyne)** — structured memory ideas. It is used here as an optional dependency over MCP, not vendored.
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright © 2026 Odai Ameera.
+
+### Dependency licensing
+
+Kara's own code is MIT, but two runtime dependencies are copyleft and are worth knowing about if you plan to redistribute:
+
+| Dependency | License |
+|---|---|
+| `pymupdf` | GNU AFFERO GPL 3.0, or an Artifex commercial license |
+| `python-telegram-bot` | LGPL-3.0-only |
+
+Everything else is MIT, BSD, or Apache-2.0. These are installed from PyPI on your machine rather than redistributed in this repository, so cloning and running Kara is unaffected. They matter if you ship a *combined* artifact — a wheel with dependencies vendored, a PyInstaller binary, or a container image — or if you host a modified copy as a service, where AGPL's network clause can apply. If you only need the non-PDF features, `pymupdf` is the dependency to drop. This is a pointer, not legal advice.
+
+## Status
 
 This is a personal-agent project under active development, published as-is. Expect APIs, tools, and configuration to evolve. Release notes are in [`CHANGELOG.md`](CHANGELOG.md).
-
-No license file is currently included, which means default copyright applies and no reuse rights are granted. If you want others to be able to use or contribute to this code, add a `LICENSE` file.

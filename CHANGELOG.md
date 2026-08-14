@@ -115,6 +115,13 @@ These change behavior for an existing install. Each can be restored in `.env`.
 
 ### Documentation
 
+- Released under the **MIT License** — the project previously shipped no
+  `LICENSE` file, so default copyright applied and no reuse rights were granted.
+  Added an acknowledgements section crediting the projects Kara borrows
+  architecture from, and a note on the two copyleft runtime dependencies.
+- Fixed the outbound HTTP `User-Agent`, which advertised another project's
+  repository URL, so `web_search` and `web_fetch` identified themselves as
+  Hermes to every server they contacted.
 - Audited the README against the source and corrected what had drifted: the
   scheduled-job allowlist, the available slash commands, the `brain/` layout, and
   the description of web search.
@@ -138,8 +145,10 @@ These change behavior for an existing install. Each can be restored in `.env`.
   spawn". Use `uv run python -m gateway.run` and the other forms listed in the
   README. Adding a build backend would fix this, but the flat module layout
   needs explicit packaging config to avoid shipping a broken wheel.
-- No `LICENSE` file is included, so default copyright applies and no reuse rights
-  are granted.
+- `pymupdf` is AGPL-3.0 (or commercial) and `python-telegram-bot` is LGPL-3.0.
+  Both are installed from PyPI rather than redistributed here, so this does not
+  affect cloning and running Kara, but it constrains shipping a bundled artifact
+  or hosting a modified copy as a service.
 
 ## [0.1.0] - 2026-06-28
 
