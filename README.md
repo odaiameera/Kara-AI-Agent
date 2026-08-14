@@ -501,6 +501,6 @@ Useful scripts are in `scripts/`, including gateway install/start/stop helpers a
 
 ## License / status
 
-This is a personal-agent project under active development, published as-is. Expect APIs, tools, and configuration to evolve.
+This is a personal-agent project under active development, published as-is. Expect APIs, tools, and configuration to evolve. Release notes are in [`CHANGELOG.md`](CHANGELOG.md).
 
 No license file is currently included, which means default copyright applies and no reuse rights are granted. If you want others to be able to use or contribute to this code, add a `LICENSE` file.
