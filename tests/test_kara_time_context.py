@@ -65,5 +65,28 @@ class KaraRuntimeClockInjectionTests(unittest.TestCase):
         self.assertNotIn("CLOCK", first[0]["content"])
 
 
+class SystemPromptTimezoneTests(unittest.TestCase):
+    """The scheduling instruction used to hardcode the author's timezone while
+    the runtime clock read KARA_TIMEZONE, so the two disagreed for everyone who
+    configured one."""
+
+    def test_scheduling_instruction_follows_the_configured_timezone(self) -> None:
+        with patch.object(
+            kara.time_context, "configured_timezone", return_value="America/New_York"
+        ):
+            prompt = kara.get_system_instruction()
+
+        self.assertIn("America/New_York", prompt)
+        self.assertNotIn("Europe/Dublin", prompt)
+
+    def test_prompt_and_runtime_clock_name_the_same_zone(self) -> None:
+        prompt = kara.get_system_instruction()
+        clock = kara.time_context.build_runtime_time_context()
+        zone = kara.time_context.configured_timezone()
+
+        self.assertIn(zone, prompt)
+        self.assertIn(f"Timezone: {zone}", clock)
+
+
 if __name__ == "__main__":
     unittest.main()
