@@ -2,6 +2,16 @@
 
 Kara is a local-first personal AI agent for CLI and Telegram. They combine configurable chat providers with persistent memory, local PC/file tools, scheduling, email, GitHub, and safety-gated desktop automation.
 
+## What this is for
+
+Kara exists to be an assistant that **remembers you across sessions and can act on your own machine, without that state living in someone else's cloud**. Three mechanisms carry that:
+
+- **Memory is a directory you own.** Conversations go to SQLite at `brain/state.db`; durable facts go to Markdown in `brain/learnings/`. Semantic recall is built from those two sources, not from a hosted index. The whole `brain/` directory is gitignored — you can read it, back it up, or delete it.
+- **The model is swappable from `.env` alone.** Ollama, ChatGPT Codex over OAuth, or any OpenAI-compatible endpoint. Every adapter returns the same `ChatResult`, so nothing above the provider layer knows which backend answered, and switching costs no code.
+- **Acting on your machine is gated, not assumed.** Reads and inspection are the default. Writing files, sending email, running tests, driving the desktop, and publishing to GitHub each sit behind a distinct gate, and the riskiest of them require a two-turn approval token bound to the exact action.
+
+It is a single-user personal agent, not a multi-tenant service or a framework: sessions are keyed per Telegram user, and the safety model assumes the person running it owns the machine.
+
 > **Privacy and safety:** Kara’s runtime state, credentials, provider tokens, local memory, and `.env` are intentionally machine-local and gitignored. Read-only inspection is the default; publishing, test execution, and desktop input require explicit approval.
 
 ## What Kara can do
@@ -10,7 +20,7 @@ Kara is a local-first personal AI agent for CLI and Telegram. They combine confi
 - Run continuously through a Telegram gateway with SQLite-backed conversation history.
 - Maintain a local brain: always-in-context core memory, durable learnings, session logs, and hybrid semantic/keyword recall.
 - Use optional Mnemosyne MCP memory as an additional structured memory surface.
-- Search and fetch the web using SearXNG with Brave/DuckDuckGo fallbacks.
+- Search and fetch the web through public providers by default, or your own SearXNG instance if you configure one.
 - Read, search, and explicitly write local files inside configured filesystem roots.
 - Create/read/edit Word, Excel, and PowerPoint files without opening Microsoft Office.
 - Extract text from PDFs and images locally using PyMuPDF plus Windows OCR or Tesseract.
@@ -20,6 +30,7 @@ Kara is a local-first personal AI agent for CLI and Telegram. They combine confi
 - Inspect or control desktop apps through `cua-driver`, with exact two-turn approval for input.
 - Create durable reminders and scheduled autonomous read-only jobs.
 - Read GitHub repositories, commits, issues, PRs, Actions, and notifications; publishing actions require approval.
+- Search, read, and write notes in an external Obsidian vault, when one is configured.
 
 ## Architecture
 
@@ -36,6 +47,56 @@ KaraSession ── provider chat + tool loop ── tool registry
 ```
 
 `kara.py` owns the main model → tool → model loop. Tool schemas are generated from Python function signatures and docstrings. Telegram handlers run blocking provider, SQLite, and tool work in worker threads so the event loop remains responsive.
+
+### Module map
+
+```text
+agent.py            CLI entry point            main.py             Launcher (CLI/gateway/update/install)
+kara.py             KaraSession + tool loop    config.py           Paths and .env settings
+
+Providers
+  provider_base.py  Provider interface, ChatResult, retry/backoff
+  providers.py      Provider registry and discovery from .env
+  models.py         Active model/provider selection, /models formatting
+  providers_ollama.py · providers_codex.py · providers_openai_compatible.py
+  ollama_client.py  Shared Ollama HTTP client (chat, embeddings, model list)
+
+Memory and context
+  memory_store.py   Core memory + learnings (Markdown)
+  session_db.py     SQLite: messages, sessions, session_summaries, turns
+  vector_index.py   Local hybrid index over learnings + summaries
+  embeddings.py     Embeddings via the active provider
+  context_budget.py Token accounting and compaction thresholds
+
+Scheduling and time
+  scheduler.py      Durable job storage (brain/scheduler.db)
+  scheduled_runner.py  Executes due jobs and delivers results
+  time_context.py   Per-request clock injected into the prompt
+
+Auth
+  auth_store.py     Shared token store (brain/auth.json)
+  codex_auth.py · github_auth.py   Device-code OAuth flows
+
+Tools
+  tools/registry.py Aggregates every module's TOOL_GROUP/TOOLS/SCHEDULED_SAFE
+  tool_schemas.py   Function signature + docstring -> JSON schema
+  tools/<group>_tools.py            one file per group, each declaring its own
+                   TOOL_GROUP/TOOLS/SCHEDULED_SAFE/READ_ONLY:
+                   memory · web · file · document · office · sql · python ·
+                   computer · windows · scheduler · email · github ·
+                   mnemosyne · obsidian
+  tools/http_client.py  Shared pooled HTTP client
+  tools/mcp_bridge.py   stdio MCP client (used by the Mnemosyne bridge)
+
+Gateway
+  gateway/run.py    Long-lived daemon      gateway/sessions.py  Session cache
+  gateway/commands.py  Slash commands      gateway/restart.py   Restart + update detection
+  gateway/platforms/telegram.py       Telegram adapter
+  gateway/platforms/tg_format.py      Markdown -> Telegram-safe HTML
+
+Ops
+  update.py · install_gateway.py · scripts/
+```
 
 ### Tool registry and on-demand loading
 
@@ -54,18 +115,35 @@ brain/
   core/          Always-in-context persona, user, and active-task blocks
   learnings/     Durable facts and decisions (Markdown)
   sessions/      Legacy conversation logs, retained but no longer written or indexed
-  index/         Derived vector index for hybrid search
+  index/         Derived vector index for hybrid search (index.json)
   settings.json  Active provider/model settings
   providers.json Provider definitions without API keys
-  state.db       SQLite conversation history and session summaries
+  state.db       SQLite conversation history, session summaries, and per-turn usage
   scheduler.db   Durable reminders and scheduled jobs
   auth.json      OAuth tokens (GitHub/Codex), when configured
-  logs/          Gateway logs
+  logs/          Gateway logs (gateway.log, gateway_boot.log)
 ```
 
-Conversation transcripts live in one place: the `messages` table in `state.db`. Semantic recall is built from two curated sources instead — `learnings/` (facts Kara chose to save) and the `session_summaries` table (one recap per finished conversation). Raw turns are deliberately not embedded, so recall returns decisions rather than small talk, and the index no longer grows with every scheduled job that runs.
+The gateway also keeps its coordination state here: `gateway.pid`,
+`gateway.instance.lock` (single-instance guard), `restart.flag`, `restart.lock`,
+`restart_notify.json` (pending results to deliver after a restart),
+`code.fingerprint` (source-change detection), and `sessions_migrated.marker`.
+All of it is disposable — deleting `brain/` costs you memory and history, not
+the ability to start.
+
+Conversation transcripts live in one place: the `messages` table in `state.db`, alongside `sessions` and a `turns` table that records per-turn token usage, tool calls, and duration (this is what `/usage` reports). Semantic recall is built from two curated sources instead — `learnings/` (facts Kara chose to save) and the `session_summaries` table (one recap per finished conversation). Raw turns are deliberately not embedded, so recall returns decisions rather than small talk, and the index no longer grows with every scheduled job that runs.
 
 Existing `brain/sessions/*.md` logs are migrated once on startup: any `## Summary` block is lifted into `session_summaries` and the files are left on disk untouched.
+
+Kara manages this memory through five always-on tools:
+
+| Tool | Effect |
+|---|---|
+| `core_memory_append` | Add a line to a core block (`persona`, `human`, `active_task`) |
+| `core_memory_replace` | Correct an existing line in a core block |
+| `set_active_task` | Set or clear what Kara is currently working on |
+| `save_learning` | Write a durable fact or decision to `learnings/` as Markdown |
+| `search_memory` | Hybrid semantic + keyword recall over learnings and session summaries |
 
 Kara’s built-in semantic search uses cached hybrid ranking: embeddings plus keyword matching. A cheap fingerprint — file stat for learnings, row count and latest id for summaries — avoids re-embedding when nothing has changed. If embeddings are unavailable, search falls back to keywords.
 
@@ -78,8 +156,6 @@ Kara’s built-in semantic search uses cached hybrid ranking: embeddings plus ke
 - Optional image OCR: built-in Windows OCR, or Tesseract (`tesseract-ocr` on Linux; `brew install tesseract` on macOS)
 
 ## Quick start: clone and run Kara
-
-The repository is currently private, so cloning requires a GitHub account with access. The same commands will work without authentication if the repository is made public later.
 
 ### 1. Clone the repository
 
@@ -238,6 +314,10 @@ Telegram/CLI commands include:
 - `/model [provider/model-or-name]` — inspect or switch model
 - `/new` — start a fresh chat while preserving long-term memory
 - `/restart` — request a graceful gateway restart
+- `/auth codex` — how to complete the Codex device login (it runs in a local terminal, not over Telegram)
+- `/codex-status` — confirm stored Codex credentials
+
+In the CLI, `exit` or `quit` ends the session and writes its summary.
 
 Switching provider or model resets only the current chat context, not the brain.
 
@@ -263,16 +343,25 @@ Copy `.env.example` and set only the integrations you use. Never commit `.env`.
 
 | Area | Key settings |
 |---|---|
+| Identity | `KARA_USER_NAME` — what Kara calls you; defaults to "the user" |
 | Providers | `OLLAMA_API_KEY`, `OLLAMA_HOST`, `OLLAMA_MODEL`, `EMBED_MODEL` |
+| Any OpenAI-compatible backend | `KARA_PROVIDER_<NAME>_BASE_URL`, `_API_KEY`, `_MODEL` |
+| Turn limits | `KARA_MODEL_CONTEXT_TOKENS`, `KARA_MAX_TOOL_ITERATIONS`, `KARA_TURN_TIMEOUT_SECONDS`, `KARA_MAX_REPEATED_TOOL_CALLS` |
+| Context compaction | `KARA_COMPACT_AT_FRACTION`, `KARA_MAX_TOOL_RESULT_CHARS` |
+| Provider resilience | `KARA_PROVIDER_RETRY_ATTEMPTS`, `KARA_PROVIDER_RETRY_BASE_DELAY`, `KARA_PROVIDER_TIMEOUT_SECONDS` |
 | Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS` |
-| Web search | `SEARXNG_URL`, Cloudflare Access variables, public fallback URLs |
+| Web search | `SEARXNG_URL` (optional), Cloudflare Access variables, public fallback URLs |
 | Files | `KARA_FILE_READ_ROOTS`, `KARA_FILE_WRITE_ROOTS`, `KARA_ALLOW_SENSITIVE_FILES` |
 | Documents | `KARA_DOCUMENT_MAX_BYTES`, `KARA_PDF_MAX_PAGES`, OCR/PDF time and memory limits |
 | Desktop | `KARA_CUA_ENABLED`, `KARA_CUA_DRIVER_CMD`, `KARA_CUA_TELEMETRY` |
-| Scheduling | `KARA_TIMEZONE`, `KARA_SCHEDULER_POLL_SECONDS` |
+| Scheduling | `KARA_TIMEZONE` (defaults to UTC), `KARA_SCHEDULER_POLL_SECONDS` |
 | GitHub | `GITHUB_CLIENT_ID`, `GITHUB_OAUTH_SCOPES`, `GITHUB_GIT_TIMEOUT` |
 | Mnemosyne | `MNEMOSYNE_BIN`, `MNEMOSYNE_DB_PATH` |
-| Email | Himalaya configuration plus `EMAIL_SEND_ENABLED=true` only when deliberate |
+| Obsidian | `OBSIDIAN_VAULT_PATH` |
+| Email | Himalaya configuration (`HIMALAYA_BIN`, `HIMALAYA_CONFIG`, `HIMALAYA_ACCOUNT`) plus `EMAIL_SEND_ENABLED=true` only when deliberate |
+
+`.env.example` is the exhaustive list and documents every option with its
+default; the table above is a map of the categories.
 
 Filesystem access is intentionally constrained. Reads/searches default to the project and user home; writes default to the project. Sensitive paths such as `.env`, credential stores, and application profiles are blocked unless explicitly enabled.
 
@@ -326,7 +415,9 @@ The scheduler is backed by `brain/scheduler.db`. Jobs survive gateway and machin
 
 Schedules accept an offset-aware ISO timestamp, a strict relative delay such as `in 15m`, or five-field cron such as `0 8 * * *`. Cron schedules use the supplied IANA timezone and follow daylight-saving changes. A live local/UTC clock is injected into each model request.
 
-Autonomous scheduled agent jobs are deliberately restricted to observational tools: web, memory search, file/document/SQLite/Python reads, and Windows inventory. They cannot write files, send email, drive the desktop, execute tests, mutate memory, or create jobs.
+Autonomous scheduled agent jobs are deliberately restricted to a fixed allowlist of 19 observational tools: web search/fetch, `search_memory`, file reads and search, `read_office_file`, SQLite inspection and queries, Python inspection/validation, Windows inventory, and Obsidian reads. They cannot write files, send email, drive the desktop, execute tests, mutate memory, or create jobs. PDF and OCR reads are also excluded, since they spawn bounded worker subprocesses.
+
+That allowlist is assembled from each tool module's own `SCHEDULED_SAFE` declaration, and the registry refuses to start if a module marks a tool scheduled-safe without also marking it read-only.
 
 ## GitHub
 
@@ -352,6 +443,24 @@ uv add "mnemosyne-memory[mcp,embeddings]"
 
 Kara lazily starts `mnemosyne mcp` over stdio on first use. The bridge caches the MCP tool list for the connection, strips Kara credentials from the child environment while preserving `MNEMOSYNE_*` settings, and refuses ambiguous tool-name matches. `mnemosyne_status` shows the live server inventory; `mnemosyne_remember`, `mnemosyne_recall`, and `mnemosyne_call_tool` provide the base interface to Mnemosyne’s version-specific tool surface.
 
+## Obsidian vault (optional)
+
+Kara can read and write notes in an external [Obsidian](https://obsidian.md) vault. This is a plain bridge to a folder of Markdown — it is entirely separate from Kara's own brain, and nothing in core memory, learnings, or the vector index depends on it.
+
+Point `OBSIDIAN_VAULT_PATH` at the vault directory in `.env`:
+
+```env
+OBSIDIAN_VAULT_PATH=/path/to/your/vault
+```
+
+The path is expanded (`~` works) and must exist; if it does not resolve, the three tools report that no vault is configured rather than failing:
+
+- `search_obsidian` — search note contents across the vault
+- `read_obsidian_note` — read one note
+- `write_obsidian_note` — create or update a note
+
+Vault writes are separate from the `KARA_FILE_WRITE_ROOTS` allow-list that governs the general file tools.
+
 ## Security model
 
 - `.env`, `brain/`, virtual environments, and downloaded binaries are gitignored.
@@ -360,7 +469,8 @@ Kara lazily starts `mnemosyne mcp` over stdio on first use. The bridge caches th
 - Web content and downloaded text are never treated as permission to change local files.
 - SQLite and Windows inventory are read-only.
 - Email sending, test execution, desktop input, and GitHub publishing use separate safety gates.
-- Approval tokens are one-time, short-lived, user-authored, and bound to the exact proposed action/target where applicable.
+- Approval tokens are one-time (consumed on use), expire after 10 minutes, and are bound to the originating session, the exact action and arguments, and the resolved target window. If the action, its arguments, or the target changes after approval was requested, the token is rejected and nothing runs.
+- The approval phrase must be typed by the user: the gate compares the current user message against the exact string `approve <token>`, so the model cannot satisfy it by emitting the phrase itself.
 
 ## Development
 
@@ -370,8 +480,25 @@ The repository includes an extensive `unittest` suite for tools, auth, providers
 uv run python -m unittest discover -s tests
 ```
 
-Useful scripts are in `scripts/`, including gateway install/start/stop helpers and file-work smoke tests.
+Four tests currently fail under CPython 3.14.0rc2 — the `McpBridgeRealServerTests` cases, which spawn a real MCP server subprocess and hit a `prefer_fwd_module` incompatibility in the MCP SDK's pydantic use. They are unrelated to Kara's own code and pass on a release build of 3.14.
+
+Useful scripts are in `scripts/`, including gateway install/start/stop helpers and file-work smoke tests. [`KARA_WINDOWS_SMOKE_TESTS.md`](KARA_WINDOWS_SMOKE_TESTS.md) is a manual end-to-end checklist for the Windows-only surface (system inventory, desktop control, scheduled tasks), which the automated suite covers only with mocks.
+
+### Console scripts
+
+`uv sync` installs these entry points, equivalent to the longer `uv run python <file>` forms used above:
+
+| Command | Equivalent |
+|---|---|
+| `uv run kara` | `uv run python agent.py` — the CLI |
+| `uv run kara-gateway` | the Telegram gateway (`gateway.run`) |
+| `uv run kara-install` | `uv run python install_gateway.py` — Windows logon task |
+| `uv run kara-codex-auth` | `uv run python codex_auth.py` — Codex device login |
+| `uv run kara-github-auth` | `uv run python github_auth.py` — GitHub device login |
+| `uv run kara-update` | `git pull --ff-only`, then `uv sync`, then signal a gateway restart |
 
 ## License / status
 
-This is a private personal-agent project under active development. Expect APIs, tools, and configuration to evolve.
+This is a personal-agent project under active development, published as-is. Expect APIs, tools, and configuration to evolve.
+
+No license file is currently included, which means default copyright applies and no reuse rights are granted. If you want others to be able to use or contribute to this code, add a `LICENSE` file.
