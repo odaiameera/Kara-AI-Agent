@@ -1,10 +1,10 @@
 """Central configuration and path resolution for the Kara agent.
 
-Importing this module loads environment variables from ``personal_agent/.env``
+Importing this module loads environment variables from the repo root's ``.env``
 and exposes the key filesystem locations the rest of the app relies on.
 
 Kara's entire mind lives in a single self-contained, gitignored directory: the
-"brain" (``personal_agent/brain/``). It holds:
+"brain" (``brain/`` at the repo root). It holds:
 
     brain/
       core/        always-in-context working memory (persona/human/active_task)
@@ -12,8 +12,9 @@ Kara's entire mind lives in a single self-contained, gitignored directory: the
       sessions/    episodic logs of past conversations
       index/       derived vector store (embeddings cache)
 
-Everything under ``brain/`` is runtime state and is gitignored. The committed
-``memory/IDENTITY.md`` acts only as a seed for Kara's persona on first run.
+Everything under ``brain/`` is runtime state and is gitignored. An optional
+``memory/IDENTITY.md`` acts only as a seed for Kara's persona on first run; it is
+not shipped with the repo, and Kara falls back to a built-in persona without it.
 
 STUDY GUIDE
 -----------
@@ -29,9 +30,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # LEARN: __file__ is the path to this source file; .resolve().parent gives the folder
-# containing config.py (the personal_agent package). Path objects make path joining safe.
+# containing config.py (the repo root). Path objects make path joining safe.
 PACKAGE_DIR = Path(__file__).resolve().parent
-REPO_ROOT = PACKAGE_DIR.parent
+# The package used to live in a ``personal_agent/`` subdirectory, so REPO_ROOT was
+# the parent. The layout is flat now — config.py sits at the repo root — so the
+# parent is whatever directory the clone happens to sit in. Pointing at it made
+# every derived path (the identity seed, the legacy-memory migration, and the
+# ``git pull`` in update.py) resolve outside the checkout.
+REPO_ROOT = PACKAGE_DIR
 
 # LEARN: load_dotenv reads KEY=value lines from .env into os.environ so os.getenv works.
 # We pass an explicit path so it works no matter which directory you run commands from.
@@ -131,7 +137,18 @@ PROVIDER_TIMEOUT_SECONDS = _float_env("KARA_PROVIDER_TIMEOUT_SECONDS", 300.0, mi
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
-SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")
+# What Kara calls its owner in seeded memory and in its persona. This is a single
+# constant on purpose: the name is woven into sentences rather than printed on its
+# own, so it has to be substituted, not stripped. The default is a noun phrase so
+# those sentences stay grammatical ("the user's personal AI assistant") on a fresh
+# clone; set KARA_USER_NAME to have Kara use your name instead.
+DEFAULT_USER_NAME = "the user"
+USER_NAME = os.getenv("KARA_USER_NAME", "").strip() or DEFAULT_USER_NAME
+
+# Optional self-hosted SearXNG. Deliberately unset by default: a shipped default
+# would send every install's search queries to somebody else's server. With no
+# value, web_search falls back to public providers instead.
+SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip().rstrip("/")
 
 
 def _configured_path_roots(name: str, defaults: tuple[Path, ...]) -> tuple[Path, ...]:

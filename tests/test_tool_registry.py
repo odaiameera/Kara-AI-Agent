@@ -130,5 +130,37 @@ class GatingTests(unittest.TestCase):
         self.assertNotIn("github", registry.groups_for_text("I prefer the press"))
 
 
+class GroupVocabularyTests(unittest.TestCase):
+    """Group names are declared by tool modules and referenced in three other
+    places. A mismatch fails silently -- the group just stops appearing -- so
+    pin the agreement instead of trusting it."""
+
+    def test_referenced_group_names_are_all_declared(self) -> None:
+        declared = set(registry.GROUPS)
+        self.assertLessEqual(set(registry.ALWAYS_ON), declared)
+        self.assertLessEqual(set(registry.GROUP_KEYWORDS), declared)
+
+    def test_every_on_demand_group_has_activation_keywords(self) -> None:
+        # A group with no keywords can only be reached by an explicit
+        # activate_tool_group call, which is a silent capability regression.
+        for group in registry.ON_DEMAND_GROUP_ORDER:
+            with self.subTest(group=group):
+                self.assertTrue(registry.GROUP_KEYWORDS.get(group))
+
+    def test_on_demand_order_matches_the_on_demand_set(self) -> None:
+        self.assertEqual(set(registry.ON_DEMAND_GROUP_ORDER), set(registry.ON_DEMAND_GROUPS))
+        self.assertEqual(
+            len(registry.ON_DEMAND_GROUP_ORDER), len(set(registry.ON_DEMAND_GROUP_ORDER))
+        )
+
+    def test_activate_schema_advertises_exactly_the_on_demand_groups(self) -> None:
+        described = registry.ACTIVATE_SCHEMA["function"]["parameters"]["properties"]["group"]
+        advertised = {
+            part.strip(" .")
+            for part in described["description"].split("One of:")[1].split(",")
+        }
+        self.assertEqual(advertised, set(registry.ON_DEMAND_GROUP_ORDER))
+
+
 if __name__ == "__main__":
     unittest.main()

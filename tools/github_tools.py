@@ -61,7 +61,7 @@ def _not_ready_message() -> str:
     if not github_auth.has_credentials():
         return (
             "GitHub is not connected. Run: uv run python github_auth.py login "
-            "(requires GITHUB_CLIENT_ID in personal_agent/.env from a GitHub OAuth App "
+            "(requires GITHUB_CLIENT_ID in .env from a GitHub OAuth App "
             "with Device Flow enabled — not a fine-grained personal access token)."
         )
     return ""

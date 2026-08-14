@@ -274,7 +274,7 @@ def _fallback_search(query: str, max_results: int) -> str | None:
 
 def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
     """
-    Search the web using the configured SearXNG instance. Use for current events, documentation, or facts not in memory.
+    Search the web. Uses a configured SearXNG instance when available, otherwise public search providers. Use for current events, documentation, or facts not in memory.
 
     Args:
         query: The search query.
@@ -291,6 +291,18 @@ def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
     except (TypeError, ValueError):
         max_results = MAX_SEARCH_RESULTS
     max_results = max(1, min(max_results, 15))
+
+    # No SearXNG configured: go straight to the public providers rather than
+    # building a request against an empty base URL.
+    if not SEARXNG_URL:
+        fallback = _fallback_search(query, max_results)
+        if fallback:
+            return fallback
+        return (
+            "Web search is unavailable: no SEARXNG_URL is configured and the public "
+            "fallback providers could not be reached. Set SEARXNG_URL in .env to point "
+            "at a SearXNG instance."
+        )
 
     url = f"{SEARXNG_URL}/search"
     params = {"q": query.strip(), "format": "json"}

@@ -112,6 +112,23 @@ for _module in _MODULES:
             f"READ_ONLY: {sorted(_unsafe)}"
         )
 
+# Group names are declared by the tool modules (``TOOL_GROUP``) and referenced
+# again by ALWAYS_ON and GROUP_KEYWORDS. Nothing tied those copies together, and
+# a name that matches no real group fails silently rather than loudly: an unknown
+# ALWAYS_ON entry contributes no schemas, and an unknown GROUP_KEYWORDS key is
+# dropped by the ``group in GROUPS`` filter below. Either way the group simply
+# stops appearing, with no error and no failing test.
+for _label, _referenced in (
+    ("ALWAYS_ON", set(ALWAYS_ON)),
+    ("GROUP_KEYWORDS", set(GROUP_KEYWORDS)),
+):
+    _unknown = _referenced - set(GROUPS)
+    if _unknown:
+        raise RuntimeError(
+            f"registry.{_label} names groups no tool module declares: "
+            f"{sorted(_unknown)}. Known groups: {sorted(GROUPS)}."
+        )
+
 TOOL_REGISTRY: dict[str, Callable[..., Any]] = {fn.__name__: fn for fn in ALL_TOOLS}
 TOOL_SCHEMAS: list[dict[str, Any]] = tool_schemas.build_tools(ALL_TOOLS)
 SCHEMAS_BY_NAME: dict[str, dict[str, Any]] = {
@@ -120,6 +137,9 @@ SCHEMAS_BY_NAME: dict[str, dict[str, Any]] = {
 SCHEDULED_SAFE = frozenset(_SCHEDULED_SAFE)
 READ_ONLY = frozenset(_READ_ONLY)
 ON_DEMAND_GROUPS = frozenset(GROUPS) - ALWAYS_ON
+# Same set, in registry order, for anything user- or model-facing that needs a
+# stable list rather than a set's arbitrary iteration order.
+ON_DEMAND_GROUP_ORDER = tuple(group for group in GROUPS if group not in ALWAYS_ON)
 
 ACTIVATE_TOOL = "activate_tool_group"
 
@@ -129,7 +149,7 @@ def activate_tool_group(group: str) -> str:
     Reveal a group of tools that is not currently loaded, then retry what you were doing. Use this when you need a capability whose tools you cannot see.
 
     Args:
-        group: The capability group to load. One of: github, email, office, computer, windows, sql, python, scheduler, mnemosyne, obsidian.
+        group: The capability group to load. One of: {groups}.
 
     Returns:
         Confirmation naming the tools that are now available.
@@ -138,6 +158,16 @@ def activate_tool_group(group: str) -> str:
     # session state. This body only exists so the schema is built the same way
     # as every other tool; reaching it means the interception was bypassed.
     raise RuntimeError("activate_tool_group must be handled by KaraSession.")
+
+
+# This docstring becomes the tool schema the model reads, so the group list has
+# to be derived rather than restated. Hardcoded, it silently taught the model a
+# stale enum the moment a module was added, renamed, or promoted to always-on --
+# the model would keep asking for a group that no longer exists, or never learn
+# about one that does.
+activate_tool_group.__doc__ = (activate_tool_group.__doc__ or "").format(
+    groups=", ".join(ON_DEMAND_GROUP_ORDER)
+)
 
 
 ACTIVATE_SCHEMA: dict[str, Any] = tool_schemas.function_to_tool(activate_tool_group)

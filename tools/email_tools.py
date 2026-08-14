@@ -1,6 +1,6 @@
 """Email tools via the Himalaya CLI (IMAP/SMTP).
 
-Kara does not implement email protocols herself — she shells out to
+Kara does not implement email protocols themselves — they shell out to
 ``himalaya``, a trusted Rust CLI (https://github.com/pimalaya/himalaya).
 Configure accounts with ``himalaya account configure``; credentials live in
 Himalaya's config file, not in Kara's ``.env``.
@@ -31,7 +31,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
-import config  # loads personal_agent/.env (HIMALAYA_BIN, etc.)
+import config  # loads .env (HIMALAYA_BIN, etc.)
 
 # LEARN: Default timeout for IMAP/SMTP network calls — avoids hanging forever.
 DEFAULT_TIMEOUT = float(os.getenv("HIMALAYA_TIMEOUT", "60"))
@@ -77,7 +77,7 @@ def _not_ready_message() -> str:
         return (
             "Himalaya is installed but not configured. Run: himalaya account configure "
             "(config is usually ~/.config/himalaya/config.toml). "
-            "Optional: set HIMALAYA_CONFIG or HIMALAYA_ACCOUNT in personal_agent/.env"
+            "Optional: set HIMALAYA_CONFIG or HIMALAYA_ACCOUNT in .env"
         )
     return ""
 
@@ -393,7 +393,7 @@ def email_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "") ->
         return (
             "Sending is DISABLED. Draft preview:\n\n"
             f"{preview}\n\n"
-            "Set EMAIL_SEND_ENABLED=true in personal_agent/.env to allow Kara to send mail."
+            "Set EMAIL_SEND_ENABLED=true in .env to allow Kara to send mail."
         )
 
     # LEARN: Pipe the raw RFC 5322 message to 'message send' via stdin.

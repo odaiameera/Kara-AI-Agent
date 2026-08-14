@@ -75,7 +75,7 @@ class WindowsServiceTests(unittest.TestCase):
 class WindowsScheduledTaskTests(unittest.TestCase):
     def test_list_scheduled_tasks_filters_state_and_reports_action_counts(self) -> None:
         rows = [
-            {"TaskName": "KaraGateway", "TaskPath": "\\", "State": "Ready", "Principal": "Odai", "ActionCount": 1, "TriggerCount": 1},
+            {"TaskName": "KaraGateway", "TaskPath": "\\", "State": "Ready", "Principal": "user", "ActionCount": 1, "TriggerCount": 1},
             {"TaskName": "Maintenance", "TaskPath": "\\Lab\\", "State": "Disabled", "Principal": "SYSTEM", "ActionCount": 2, "TriggerCount": 1},
         ]
         with patch.object(windows_tools, "_run_powershell_json", return_value=rows):

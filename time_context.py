@@ -6,9 +6,15 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
+# Neutral default: a shipped default has to be *some* zone, and the author's own
+# is the wrong one to impose on every install. Set KARA_TIMEZONE to your IANA
+# zone so reminders and "tomorrow" resolve locally rather than in UTC.
+DEFAULT_TIMEZONE = "UTC"
+
+
 def configured_timezone() -> str:
     """Return Kara's configured IANA timezone name."""
-    return os.getenv("KARA_TIMEZONE", "Europe/Dublin").strip() or "Europe/Dublin"
+    return os.getenv("KARA_TIMEZONE", "").strip() or DEFAULT_TIMEZONE
 
 
 def build_runtime_time_context(

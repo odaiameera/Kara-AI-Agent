@@ -260,10 +260,10 @@ class StatusAndToolCallTests(unittest.TestCase):
     def test_call_tool_passes_through_exact_name_and_arguments(self) -> None:
         self.bridge.call_tool.return_value = _fake_call_result("done")
 
-        result = mnemosyne_tools.mnemosyne_call_tool("knowledge_graph_query", '{"node": "odai"}')
+        result = mnemosyne_tools.mnemosyne_call_tool("knowledge_graph_query", '{"node": "ada"}')
 
         self.assertEqual(result, "done")
-        self.bridge.call_tool.assert_called_once_with("knowledge_graph_query", {"node": "odai"})
+        self.bridge.call_tool.assert_called_once_with("knowledge_graph_query", {"node": "ada"})
 
 
 if __name__ == "__main__":

@@ -51,7 +51,7 @@ def install() -> None:
         sys.exit(1)
     pythonw = PACKAGE_DIR / ".venv" / "Scripts" / "pythonw.exe"
     if not pythonw.exists():
-        print(f"Missing {pythonw}. Run: cd personal_agent && uv sync")
+        print(f"Missing {pythonw}. Run 'uv sync' in {PACKAGE_DIR} first.")
         sys.exit(1)
     _run_ps("install_gateway.ps1")
     print("Done. Kara starts at Windows logon (fully hidden, no console).")

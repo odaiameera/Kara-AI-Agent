@@ -146,7 +146,7 @@ async def _post_shutdown(_app: Application) -> None:
 
 def validate_config() -> None:
     if not config.TELEGRAM_BOT_TOKEN:
-        raise SystemExit("Set TELEGRAM_BOT_TOKEN in personal_agent/.env")
+        raise SystemExit("Set TELEGRAM_BOT_TOKEN in .env")
     if not config.telegram_allowed_user_ids():
         raise SystemExit(
             "Set TELEGRAM_ALLOWED_USER_IDS in .env (message @userinfobot for your id)."

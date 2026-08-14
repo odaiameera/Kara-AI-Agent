@@ -1,7 +1,7 @@
 """Agent-facing memory tools.
 
 Thin wrappers around ``memory_store`` and ``vector_index`` that Kara calls to
-manage her own brain: edit core memory, save durable learnings, and search her
+manage their own brain: edit core memory, save durable learnings, and search their
 learnings + sessions semantically (the MemGPT / Letta pattern).
 
 STUDY GUIDE
