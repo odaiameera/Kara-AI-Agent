@@ -38,7 +38,7 @@ def _client_id() -> str:
     client_id = os.getenv(GITHUB_CLIENT_ID_ENV, "").strip()
     if not client_id:
         raise GitHubAuthError(
-            f"{GITHUB_CLIENT_ID_ENV} is not set in personal_agent/.env. "
+            f"{GITHUB_CLIENT_ID_ENV} is not set in .env. "
             "Create a GitHub OAuth App (Settings -> Developer settings -> OAuth Apps), "
             "enable Device Flow on it, and paste the Client ID into .env."
         )

@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import config  # noqa: F401 - imported for its side effect: loads personal_agent/.env
+import config  # noqa: F401 - imported for its side effect: loads .env
 from tools.mcp_bridge import McpBridgeError, McpServerBridge, extract_text
 
 MNEMOSYNE_BIN = os.getenv("MNEMOSYNE_BIN", "mnemosyne").strip() or "mnemosyne"
@@ -76,7 +76,7 @@ def _resolved_bin() -> str | None:
 def _not_ready_message() -> str:
     if _resolved_bin() is None:
         return (
-            "Mnemosyne is not installed. From personal_agent/, run: "
+            "Mnemosyne is not installed. From the repo root, run: "
             "uv add \"mnemosyne-memory[mcp,embeddings]\" "
             "(skip the [all] extra unless you have a C/C++ build toolchain — it pulls in "
             "llama-cpp-python, which compiles from source). "

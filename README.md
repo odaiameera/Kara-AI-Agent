@@ -1,6 +1,6 @@
 # Kara — Local Personal AI Agent
 
-Kara is a local-first personal AI agent for CLI and Telegram. She combines configurable chat providers with persistent memory, local PC/file tools, scheduling, email, GitHub, and safety-gated desktop automation.
+Kara is a local-first personal AI agent for CLI and Telegram. They combine configurable chat providers with persistent memory, local PC/file tools, scheduling, email, GitHub, and safety-gated desktop automation.
 
 > **Privacy and safety:** Kara’s runtime state, credentials, provider tokens, local memory, and `.env` are intentionally machine-local and gitignored. Read-only inspection is the default; publishing, test execution, and desktop input require explicit approval.
 
@@ -169,7 +169,7 @@ uv run python codex_auth.py login
 uv run python agent.py
 ```
 
-On first use Kara creates her private runtime state under `brain/`. Type `/providers` to inspect available providers, `/models` to list models, and `/new` to begin a fresh conversation without deleting long-term memory.
+On first use Kara creates their private runtime state under `brain/`. Type `/providers` to inspect available providers, `/models` to list models, and `/new` to begin a fresh conversation without deleting long-term memory.
 
 ### 6. Optional: connect Telegram
 

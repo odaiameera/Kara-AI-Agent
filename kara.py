@@ -211,7 +211,7 @@ class KaraSession:
         if not self.provider.has_credentials:
             raise RuntimeError(
                 f"Provider '{self.provider.id}' has no API key. "
-                f"Set {self.provider.api_key_env} in personal_agent/.env"
+                f"Set {self.provider.api_key_env} in .env"
             )
 
         # LEARN: Failover — if the chosen provider is down, try any other reachable host.

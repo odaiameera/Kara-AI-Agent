@@ -39,7 +39,7 @@ def default_human() -> str:
 
 
 def _default_persona_base() -> str:
-    # "the user's" and "Odai's" both read correctly, so no special case needed.
+    # "the user's" and "Ada's" both read correctly, so no special case needed.
     return (
         f"You are Kara, {config.USER_NAME}'s personal AI assistant. Your entire memory lives in "
         "your local 'brain' directory: core memory (always in context), learnings "

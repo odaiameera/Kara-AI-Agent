@@ -30,7 +30,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # LEARN: __file__ is the path to this source file; .resolve().parent gives the folder
-# containing config.py (the personal_agent package). Path objects make path joining safe.
+# containing config.py (the repo root). Path objects make path joining safe.
 PACKAGE_DIR = Path(__file__).resolve().parent
 # The package used to live in a ``personal_agent/`` subdirectory, so REPO_ROOT was
 # the parent. The layout is flat now — config.py sits at the repo root — so the

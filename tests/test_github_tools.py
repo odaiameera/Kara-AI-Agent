@@ -23,7 +23,7 @@ def _fake_response(payload, headers: dict | None = None, text: str = ""):
 
 class RepoValidationTests(unittest.TestCase):
     def test_repo_slug_accepts_and_normalizes_owner_slash_name(self) -> None:
-        self.assertEqual(github_tools._repo_slug("  odaiameera/Kara-local "), "odaiameera/Kara-local")
+        self.assertEqual(github_tools._repo_slug("  example-owner/example-repo "), "example-owner/example-repo")
 
     def test_repo_slug_rejects_missing_slash(self) -> None:
         with self.assertRaises(ValueError):
@@ -46,7 +46,7 @@ class ReadOnlyToolTests(unittest.TestCase):
 
     def test_github_get_repository_curates_fields(self) -> None:
         payload = {
-            "full_name": "odaiameera/Kara-local",
+            "full_name": "example-owner/example-repo",
             "private": True,
             "description": "Kara agent",
             "default_branch": "main",
@@ -57,13 +57,13 @@ class ReadOnlyToolTests(unittest.TestCase):
             "archived": False,
             "topics": ["agent"],
             "updated_at": "2026-07-01T00:00:00Z",
-            "html_url": "https://github.com/odaiameera/Kara-local",
+            "html_url": "https://github.com/example-owner/example-repo",
         }
         with patch.object(github_tools, "_request", return_value=_fake_response(payload)) as request_mock:
-            result = json.loads(github_tools.github_get_repository("odaiameera/Kara-local"))
+            result = json.loads(github_tools.github_get_repository("example-owner/example-repo"))
 
-        request_mock.assert_called_once_with("GET", "/repos/odaiameera/Kara-local")
-        self.assertEqual(result["full_name"], "odaiameera/Kara-local")
+        request_mock.assert_called_once_with("GET", "/repos/example-owner/example-repo")
+        self.assertEqual(result["full_name"], "example-owner/example-repo")
         self.assertEqual(result["stars"], 3)
         self.assertTrue(result["private"])
 
@@ -73,11 +73,11 @@ class ReadOnlyToolTests(unittest.TestCase):
 
     def test_github_list_issues_filters_out_pull_requests(self) -> None:
         payload = [
-            {"number": 1, "title": "Real issue", "state": "open", "user": {"login": "odai"}, "comments": 0, "html_url": "u1"},
-            {"number": 2, "title": "A PR", "state": "open", "pull_request": {}, "user": {"login": "odai"}, "comments": 0, "html_url": "u2"},
+            {"number": 1, "title": "Real issue", "state": "open", "user": {"login": "octocat"}, "comments": 0, "html_url": "u1"},
+            {"number": 2, "title": "A PR", "state": "open", "pull_request": {}, "user": {"login": "octocat"}, "comments": 0, "html_url": "u2"},
         ]
         with patch.object(github_tools, "_request", return_value=_fake_response(payload)):
-            result = json.loads(github_tools.github_list_issues("odaiameera/Kara-local"))
+            result = json.loads(github_tools.github_list_issues("example-owner/example-repo"))
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["number"], 1)
@@ -119,19 +119,19 @@ class WriteActionApprovalTests(unittest.TestCase):
     def test_github_create_issue_requires_exact_later_user_approval(self) -> None:
         computer_tools.set_computer_request_context("gh-session", "file the bug")
         with patch.object(github_tools, "_request") as request_mock:
-            requested = json.loads(github_tools.github_create_issue("odaiameera/Kara-local", "Bug title"))
+            requested = json.loads(github_tools.github_create_issue("example-owner/example-repo", "Bug title"))
             token = requested["approval"]["token"]
 
             same_turn = json.loads(
-                github_tools.github_create_issue("odaiameera/Kara-local", "Bug title", approval_token=token)
+                github_tools.github_create_issue("example-owner/example-repo", "Bug title", approval_token=token)
             )
 
             computer_tools.set_computer_request_context("gh-session", f"approve {token}")
             request_mock.return_value = _fake_response(
-                {"number": 42, "html_url": "https://github.com/odaiameera/Kara-local/issues/42"}
+                {"number": 42, "html_url": "https://github.com/example-owner/example-repo/issues/42"}
             )
             completed = json.loads(
-                github_tools.github_create_issue("odaiameera/Kara-local", "Bug title", approval_token=token)
+                github_tools.github_create_issue("example-owner/example-repo", "Bug title", approval_token=token)
             )
 
         self.assertEqual(requested["status"], "approval_required")
@@ -140,7 +140,7 @@ class WriteActionApprovalTests(unittest.TestCase):
         request_mock.assert_called_once()
 
     def test_github_merge_pull_request_rejects_bad_merge_method_before_approval(self) -> None:
-        result = github_tools.github_merge_pull_request("odaiameera/Kara-local", 5, merge_method="explode")
+        result = github_tools.github_merge_pull_request("example-owner/example-repo", 5, merge_method="explode")
         self.assertIn("merge_method", result)
 
 
@@ -273,13 +273,13 @@ class GitSubprocessTests(unittest.TestCase):
             with patch.object(github_tools.config, "FILE_WRITE_ROOTS", (root,)), patch.object(
                 github_tools, "_run_git", return_value=(0, "Cloning into 'clone-target'...", "")
             ) as run_git:
-                result = github_tools.git_clone_repository("odaiameera/Kara-local", str(dest))
+                result = github_tools.git_clone_repository("example-owner/example-repo", str(dest))
 
         self.assertIn("Cloned", result)
         args, kwargs = run_git.call_args
         git_args = args[0]
         self.assertIn("clone", git_args)
-        self.assertIn("https://github.com/odaiameera/Kara-local.git", git_args)
+        self.assertIn("https://github.com/example-owner/example-repo.git", git_args)
         self.assertEqual(kwargs["token"], "tok-secret")
 
     def test_git_clone_repository_refuses_non_empty_destination(self) -> None:
@@ -289,7 +289,7 @@ class GitSubprocessTests(unittest.TestCase):
             dest.mkdir()
             (dest / "existing.txt").write_text("already here", encoding="utf-8")
             with patch.object(github_tools.config, "FILE_WRITE_ROOTS", (root,)):
-                result = github_tools.git_clone_repository("odaiameera/Kara-local", str(dest))
+                result = github_tools.git_clone_repository("example-owner/example-repo", str(dest))
         self.assertIn("Error", result)
         self.assertIn("not empty", result)
 
@@ -339,7 +339,7 @@ class GitSubprocessTests(unittest.TestCase):
 
                 computer_tools.set_computer_request_context("gh-session", f"approve {token}")
                 run_git.side_effect = [
-                    (0, "https://github.com/odaiameera/Kara-local.git", ""),  # validate origin
+                    (0, "https://github.com/example-owner/example-repo.git", ""),  # validate origin
                     (0, "", ""),  # add -A
                     (0, "[main abc1234] fix bug", ""),  # commit
                     (0, "branch 'main' set up to track 'origin/main'.", ""),  # push
