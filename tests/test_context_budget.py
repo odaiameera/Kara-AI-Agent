@@ -4,9 +4,9 @@ import unittest
 from unittest.mock import patch
 
 import config
-import context_budget
-import ollama_client
-from providers import Provider
+from memory import context_budget
+from providers import ollama_client
+from providers.registry import Provider
 
 
 class ContextWindowIsSentToOllamaTests(unittest.TestCase):

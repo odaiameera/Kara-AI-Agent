@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import kara
-from provider_base import ChatResult, ToolCall
+from providers.base import ChatResult, ToolCall
 from tests.support import FakeProvider, make_session
 from tools import registry
 

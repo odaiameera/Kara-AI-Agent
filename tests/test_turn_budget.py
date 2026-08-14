@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import kara
 from kara import TurnStopped, _TurnBudget
-from provider_base import ChatResult, ToolCall
+from providers.base import ChatResult, ToolCall
 from tests.support import make_session
 
 

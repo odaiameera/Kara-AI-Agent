@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import scheduler
+from scheduling import scheduler
 from gateway.platforms import telegram as telegram_adapter
 from tools import scheduler_tools
 

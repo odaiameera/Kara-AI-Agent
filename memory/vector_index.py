@@ -37,8 +37,8 @@ import re
 from dataclasses import dataclass
 
 import config
-import embeddings
-import session_db
+from memory import embeddings
+from memory import session_db
 
 # Bump when the on-disk index layout changes so stale indexes rebuild instead of
 # being misread.

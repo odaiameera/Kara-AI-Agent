@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from typing import Any
 
-import scheduler
+from scheduling import scheduler
 from kara import KaraSession
 from tools import registry
 

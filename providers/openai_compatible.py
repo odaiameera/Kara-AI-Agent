@@ -17,14 +17,14 @@ from typing import Any
 import httpx
 
 import config
-from provider_base import (
+from providers.base import (
     ChatResult,
     ProviderError,
     Usage,
     is_retryable_status,
     tool_calls_from_openai_shape,
 )
-from providers import Provider
+from providers.registry import Provider
 
 
 @dataclass(frozen=True)

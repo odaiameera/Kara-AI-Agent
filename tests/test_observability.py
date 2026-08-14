@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import config
 import kara
-import session_db
+from memory import session_db
 from gateway import commands as gw_commands
-from provider_base import ChatResult, ToolCall, Usage
+from providers.base import ChatResult, ToolCall, Usage
 from tests.support import FakeProvider, make_session, tool_turn
 
 

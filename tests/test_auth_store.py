@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import auth_store
-import codex_auth
+from auth import store as auth_store
+from auth import codex as codex_auth
 import config
-import github_auth
+from auth import github as github_auth
 
 
 class SharedAuthStoreTests(unittest.TestCase):

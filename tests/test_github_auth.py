@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import config
-import github_auth
+from auth import github as github_auth
 
 
 class TokenStoreTests(unittest.TestCase):

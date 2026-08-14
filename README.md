@@ -51,51 +51,55 @@ KaraSession ── provider chat + tool loop ── tool registry
 ### Module map
 
 ```text
-agent.py            CLI entry point            main.py             Launcher (CLI/gateway/update/install)
-kara.py             KaraSession + tool loop    config.py           Paths and .env settings
+Repo root -- entry points and the things everything imports
+  agent.py          CLI entry point
+  main.py           Launcher (CLI/gateway/update/install subcommands)
+  kara.py           KaraSession + the model -> tool -> model loop
+  config.py         Paths and .env settings. Anchors brain/ to the repo root,
+                    so it deliberately stays here rather than moving into a package.
+  tool_schemas.py   Function signature + docstring -> JSON schema
+  update.py · install_gateway.py
 
-Providers
-  provider_base.py  Provider interface, ChatResult, retry/backoff
-  providers.py      Provider registry and discovery from .env
+providers/          Chat backends, all returning the same ChatResult
+  base.py           Provider interface, ChatResult, retry/backoff
+  registry.py       Provider discovery from .env
   models.py         Active model/provider selection, /models formatting
-  providers_ollama.py · providers_codex.py · providers_openai_compatible.py
+  ollama.py · codex.py · openai_compatible.py
   ollama_client.py  Shared Ollama HTTP client (chat, embeddings, model list)
 
-Memory and context
-  memory_store.py   Core memory + learnings (Markdown)
+memory/             The local brain
+  store.py          Core memory + learnings (Markdown)
   session_db.py     SQLite: messages, sessions, session_summaries, turns
   vector_index.py   Local hybrid index over learnings + summaries
   embeddings.py     Embeddings via the active provider
   context_budget.py Token accounting and compaction thresholds
 
-Scheduling and time
-  scheduler.py      Durable job storage (brain/scheduler.db)
-  scheduled_runner.py  Executes due jobs and delivers results
+scheduling/         Durable reminders and autonomous jobs
+  scheduler.py      Job storage (brain/scheduler.db)
+  runner.py         Executes due jobs and delivers results
   time_context.py   Per-request clock injected into the prompt
 
-Auth
-  auth_store.py     Shared token store (brain/auth.json)
-  codex_auth.py · github_auth.py   Device-code OAuth flows
+auth/               Device-code OAuth
+  store.py          Shared token store (brain/auth.json)
+  codex.py · github.py
 
-Tools
-  tools/registry.py Aggregates every module's TOOL_GROUP/TOOLS/SCHEDULED_SAFE
-  tool_schemas.py   Function signature + docstring -> JSON schema
-  tools/<group>_tools.py            one file per group, each declaring its own
+tools/              The tool surface
+  registry.py       Aggregates every module's TOOL_GROUP/TOOLS/SCHEDULED_SAFE
+  <group>_tools.py            one file per group, each declaring its own
                    TOOL_GROUP/TOOLS/SCHEDULED_SAFE/READ_ONLY:
                    memory · web · file · document · office · sql · python ·
                    computer · windows · scheduler · email · github ·
                    mnemosyne · obsidian
-  tools/http_client.py  Shared pooled HTTP client
-  tools/mcp_bridge.py   stdio MCP client (used by the Mnemosyne bridge)
+  http_client.py    Shared pooled HTTP client
+  mcp_bridge.py     stdio MCP client (used by the Mnemosyne bridge)
 
-Gateway
-  gateway/run.py    Long-lived daemon      gateway/sessions.py  Session cache
-  gateway/commands.py  Slash commands      gateway/restart.py   Restart + update detection
-  gateway/platforms/telegram.py       Telegram adapter
-  gateway/platforms/tg_format.py      Markdown -> Telegram-safe HTML
+gateway/            Long-lived Telegram daemon
+  run.py            Daemon entry         sessions.py  Session cache
+  commands.py       Slash commands       restart.py   Restart + update detection
+  platforms/telegram.py   Telegram adapter
+  platforms/tg_format.py  Markdown -> Telegram-safe HTML
 
-Ops
-  update.py · install_gateway.py · scripts/
+scripts/            Windows gateway install/start/stop helpers, smoke tests
 ```
 
 ### Tool registry and on-demand loading
@@ -236,7 +240,7 @@ EMBED_MODEL=nomic-embed-text
 Complete the device login, then select the provider from Kara with `/provider openai-codex`:
 
 ```shell
-uv run python codex_auth.py login
+uv run python -m auth.codex login
 ```
 
 ### 5. Start the CLI
@@ -434,7 +438,7 @@ That allowlist is assembled from each tool module's own `SCHEDULED_SAFE` declara
 GitHub uses OAuth App Device Flow—not a personal access token. Create an OAuth App, enable Device Flow, put its Client ID in `.env`, then authenticate:
 
 ```powershell
-uv run python github_auth.py login
+uv run python -m auth.github login
 ```
 
 Tokens are stored in `brain/auth.json` and are gitignored. `github_status` reports connection status and granted scopes.
@@ -501,8 +505,8 @@ Useful scripts are in `scripts/`, including gateway install/start/stop helpers a
 | CLI | `uv run python agent.py` |
 | Telegram gateway | `uv run python -m gateway.run` |
 | Windows logon task | `uv run python install_gateway.py` (`--uninstall` to remove) |
-| Codex device login | `uv run python codex_auth.py login` |
-| GitHub device login | `uv run python github_auth.py login` |
+| Codex device login | `uv run python -m auth.codex login` |
+| GitHub device login | `uv run python -m auth.github login` |
 | Update + restart gateway | `uv run python update.py` |
 
 `main.py` dispatches the same things as subcommands: `uv run python main.py gateway|update|install|uninstall`, with no argument starting the CLI.

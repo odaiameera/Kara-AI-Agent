@@ -5,9 +5,9 @@ import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from provider_base import ChatProvider, ProviderError
-from providers import Provider, to_chat_provider
-from providers_ollama import OllamaProvider
+from providers.base import ChatProvider, ProviderError
+from providers.registry import Provider, to_chat_provider
+from providers.ollama import OllamaProvider
 
 
 class MockChatProvider:
@@ -87,14 +87,14 @@ class TestOllamaProvider(unittest.TestCase):
         provider = OllamaProvider(cloud)
         self.assertFalse(provider.has_credentials)
 
-    @patch("providers_ollama.ollama_client.list_models", return_value=["a", "b"])
+    @patch("providers.ollama.ollama_client.list_models", return_value=["a", "b"])
     def test_list_models_delegates(self, mock_list: MagicMock) -> None:
         cfg = self._local_config()
         provider = OllamaProvider(cfg)
         self.assertEqual(provider.list_models(), ["a", "b"])
         mock_list.assert_called_once_with(cfg)
 
-    @patch("providers_ollama.ollama_client.chat", return_value={"message": {}})
+    @patch("providers.ollama.ollama_client.chat", return_value={"message": {}})
     def test_chat_delegates(self, mock_chat: MagicMock) -> None:
         cfg = self._local_config()
         provider = OllamaProvider(cfg)
@@ -104,7 +104,7 @@ class TestOllamaProvider(unittest.TestCase):
             cfg, "llama3", messages, tools=None, temperature=0.5
         )
 
-    @patch("providers_ollama.ollama_client.embed", return_value=[1.0])
+    @patch("providers.ollama.ollama_client.embed", return_value=[1.0])
     def test_embed_delegates(self, mock_embed: MagicMock) -> None:
         cfg = self._local_config()
         provider = OllamaProvider(cfg)
@@ -126,7 +126,7 @@ class TestProviderFactory(unittest.TestCase):
 
 class TestProviderError(unittest.TestCase):
     def test_ollama_error_is_provider_error(self) -> None:
-        from ollama_client import OllamaError
+        from providers.ollama_client import OllamaError
 
         self.assertTrue(issubclass(OllamaError, ProviderError))
 

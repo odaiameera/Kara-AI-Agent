@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import kara
-from provider_base import ChatResult
+from providers.base import ChatResult
 from tests.support import make_session
 
 

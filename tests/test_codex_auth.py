@@ -7,8 +7,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import config
-from provider_base import ChatProvider, ProviderError
-from providers import Provider, to_chat_provider
+from providers.base import ChatProvider, ProviderError
+from providers.registry import Provider, to_chat_provider
 
 
 class TempBrainMixin:
@@ -27,7 +27,7 @@ class TempBrainMixin:
 
 class TestCodexAuthStore(TempBrainMixin, unittest.TestCase):
     def test_save_and_read_tokens_from_brain_auth_json(self) -> None:
-        import codex_auth
+        from auth import codex as codex_auth
 
         codex_auth.save_tokens({"access_token": "access", "refresh_token": "refresh"})
 
@@ -37,14 +37,14 @@ class TestCodexAuthStore(TempBrainMixin, unittest.TestCase):
         self.assertTrue((self.tmp_path / "auth.json").exists())
 
     def test_read_tokens_missing_raises_clear_error(self) -> None:
-        import codex_auth
+        from auth import codex as codex_auth
 
         with self.assertRaises(codex_auth.CodexAuthError) as ctx:
             codex_auth.read_tokens()
         self.assertIn("No OpenAI Codex credentials", str(ctx.exception))
 
     def test_refresh_posts_to_openai_token_endpoint_and_persists(self) -> None:
-        import codex_auth
+        from auth import codex as codex_auth
 
         codex_auth.save_tokens({"access_token": "old", "refresh_token": "refresh-old"})
         response = MagicMock()
@@ -58,7 +58,7 @@ class TestCodexAuthStore(TempBrainMixin, unittest.TestCase):
         client.__exit__.return_value = None
         client.post.return_value = response
 
-        with patch("codex_auth.httpx.Client", return_value=client):
+        with patch("auth.codex.httpx.Client", return_value=client):
             refreshed = codex_auth.refresh_tokens()
 
         self.assertEqual(refreshed["access_token"], "new-access")
@@ -70,7 +70,7 @@ class TestCodexAuthStore(TempBrainMixin, unittest.TestCase):
 
 class TestCodexDeviceLogin(TempBrainMixin, unittest.TestCase):
     def test_device_login_uses_codex_device_endpoints(self) -> None:
-        import codex_auth
+        from auth import codex as codex_auth
 
         responses = []
         for payload in (
@@ -88,7 +88,7 @@ class TestCodexDeviceLogin(TempBrainMixin, unittest.TestCase):
         client.__exit__.return_value = None
         client.post.side_effect = responses
 
-        with patch("codex_auth.httpx.Client", return_value=client), patch("codex_auth.time.sleep"):
+        with patch("auth.codex.httpx.Client", return_value=client), patch("auth.codex.time.sleep"):
             creds = codex_auth.device_login(print_fn=lambda _msg="": None)
 
         self.assertEqual(creds["tokens"]["access_token"], "access")
@@ -100,8 +100,8 @@ class TestCodexDeviceLogin(TempBrainMixin, unittest.TestCase):
 
 class TestCodexProvider(TempBrainMixin, unittest.TestCase):
     def test_codex_provider_satisfies_protocol_after_tokens_saved(self) -> None:
-        import codex_auth
-        from providers_codex import OpenAICodexProvider
+        from auth import codex as codex_auth
+        from providers.codex import OpenAICodexProvider
 
         codex_auth.save_tokens({"access_token": "access", "refresh_token": "refresh"})
         provider = OpenAICodexProvider(
@@ -128,7 +128,7 @@ class TestCodexProvider(TempBrainMixin, unittest.TestCase):
         self.assertEqual(provider.id, "openai-codex")
 
     def _provider(self):
-        from providers_codex import OpenAICodexProvider
+        from providers.codex import OpenAICodexProvider
 
         return OpenAICodexProvider(
             Provider(
@@ -158,8 +158,8 @@ class TestCodexProvider(TempBrainMixin, unittest.TestCase):
         ])
         creds = {"access_token": "not-a-jwt", "base_url": "https://chatgpt.com/backend-api/codex"}
 
-        with patch("providers_codex.codex_auth.runtime_credentials", return_value=creds), patch(
-            "providers_codex.httpx.stream", return_value=stream
+        with patch("providers.codex.codex_auth.runtime_credentials", return_value=creds), patch(
+            "providers.codex.httpx.stream", return_value=stream
         ) as mock_stream:
             result = provider.chat("gpt-5.6-terra", [{"role": "system", "content": "Be concise."}, {"role": "user", "content": "Hi"}])
 
@@ -198,8 +198,8 @@ class TestCodexProvider(TempBrainMixin, unittest.TestCase):
         stream.__exit__.return_value = None
         creds = {"access_token": "not-a-jwt", "base_url": "https://chatgpt.com/backend-api/codex"}
 
-        with patch("providers_codex.codex_auth.runtime_credentials", return_value=creds), patch(
-            "providers_codex.httpx.stream", return_value=stream
+        with patch("providers.codex.codex_auth.runtime_credentials", return_value=creds), patch(
+            "providers.codex.httpx.stream", return_value=stream
         ), self.assertRaises(ProviderError) as ctx:
             provider.chat("gpt-5.6-terra", [{"role": "user", "content": "Hi"}])
 
@@ -215,8 +215,8 @@ class TestCodexProvider(TempBrainMixin, unittest.TestCase):
         creds = {"access_token": "not-a-jwt", "base_url": "https://chatgpt.com/backend-api/codex"}
         tools = [{"type": "function", "function": {"name": "search_memory", "description": "Search", "parameters": {"type": "object"}}}]
 
-        with patch("providers_codex.codex_auth.runtime_credentials", return_value=creds), patch(
-            "providers_codex.httpx.stream", return_value=stream
+        with patch("providers.codex.codex_auth.runtime_credentials", return_value=creds), patch(
+            "providers.codex.httpx.stream", return_value=stream
         ) as mock_stream:
             result = provider.chat("gpt-5.6-terra", [{"role": "user", "content": "Recall Kara"}], tools=tools)
 

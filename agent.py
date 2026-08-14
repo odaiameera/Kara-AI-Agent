@@ -7,9 +7,9 @@ STUDY GUIDE
 * Wires a tool-call callback so you see when Kara uses memory or web tools.
 * Key concepts: ``while True`` loops, ``input()``, nested functions, ``if __name__ == "__main__"``.
 """
-import embeddings
+from memory import embeddings
 import config
-import context_budget
+from memory import context_budget
 from gateway import commands as gw_commands
 from kara import KaraSession, get_system_instruction
 from tools import registry

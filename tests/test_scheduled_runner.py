@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import scheduler
-import scheduled_runner
+from scheduling import scheduler
+from scheduling import runner as scheduled_runner
 
 
 class _FakeBot:

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import kara
-from provider_base import (
+from providers.base import (
     ChatResult,
     ProviderError,
     call_with_retry,

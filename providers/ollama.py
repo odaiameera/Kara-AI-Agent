@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import ollama_client
-from provider_base import ChatResult, chat_result_from_ollama
-from providers import Provider
+from providers import ollama_client
+from providers.base import ChatResult, chat_result_from_ollama
+from providers.registry import Provider
 
 
 @dataclass(frozen=True)

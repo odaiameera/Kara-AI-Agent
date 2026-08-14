@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 class SchedulerStorageTests(unittest.TestCase):
     def setUp(self) -> None:
-        import scheduler
+        from scheduling import scheduler
 
         self.scheduler = scheduler
         self.tmp = tempfile.TemporaryDirectory()

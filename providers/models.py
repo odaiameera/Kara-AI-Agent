@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 
 import config
-import providers
-from provider_base import ChatProvider
+from providers import registry as providers
+from providers.base import ChatProvider
 
 SETTINGS_FILE = config.BRAIN_DIR / "settings.json"
 DEFAULT_MODEL = config.OLLAMA_MODEL

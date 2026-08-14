@@ -18,9 +18,9 @@ from telegram.error import BadRequest
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 import config
-import embeddings
-import models
-import session_db
+from memory import embeddings
+from providers import models
+from memory import session_db
 from gateway import commands as gw_commands
 from gateway import restart as gw_restart
 from gateway import sessions as gw_sessions

@@ -19,10 +19,10 @@ from telegram import Update
 from telegram.ext import Application
 
 import config
-import context_budget
-import scheduler
-import scheduled_runner
-import session_db
+from memory import context_budget
+from scheduling import scheduler
+from scheduling import runner as scheduled_runner
+from memory import session_db
 from gateway import restart as gw_restart
 from gateway import sessions as gw_sessions
 from gateway.platforms import telegram as telegram_adapter

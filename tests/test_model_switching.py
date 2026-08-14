@@ -7,8 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import config
-import models
-from providers import Provider
+from providers import models
+from providers.registry import Provider
 
 
 class TempSettingsMixin:
@@ -35,7 +35,7 @@ class TestModelSwitching(TempSettingsMixin, unittest.TestCase):
             Provider(id="openai-codex", name="OpenAI Codex", type="openai-codex", host="https://chatgpt.com/backend-api/codex"),
         ]
 
-    @patch("models.providers.load_providers")
+    @patch("providers.models.providers.load_providers")
     def test_format_providers_list_marks_active_provider(self, mock_load) -> None:
         mock_load.return_value = self._provider_records()
         models.set_active("openai-codex", "gpt-5.5")
@@ -47,7 +47,7 @@ class TestModelSwitching(TempSettingsMixin, unittest.TestCase):
         self.assertIn("*", text)
         self.assertIn("/provider openai-codex", text)
 
-    @patch("models.providers.get_provider")
+    @patch("providers.models.providers.get_provider")
     def test_select_provider_uses_default_model_when_model_omitted(self, mock_get) -> None:
         mock_get.return_value = Provider(
             id="openai-codex",
@@ -63,7 +63,7 @@ class TestModelSwitching(TempSettingsMixin, unittest.TestCase):
         self.assertEqual(models.get_active_provider_id(), "openai-codex")
         self.assertEqual(models.get_current_model(), "gpt-5.5")
 
-    @patch("models.providers.get_provider")
+    @patch("providers.models.providers.get_provider")
     def test_select_provider_accepts_explicit_model(self, mock_get) -> None:
         mock_get.return_value = Provider(id="ollama-cloud", name="Ollama Cloud", type="ollama", host="https://ollama.com")
 
@@ -71,7 +71,7 @@ class TestModelSwitching(TempSettingsMixin, unittest.TestCase):
 
         self.assertEqual((provider_id, model), ("ollama-cloud", "gpt-oss:120b"))
 
-    @patch("models.providers.get_provider")
+    @patch("providers.models.providers.get_provider")
     def test_parse_model_target_switches_provider_slash_model(self, mock_get) -> None:
         mock_get.return_value = Provider(
             id="openai-codex",
@@ -84,7 +84,7 @@ class TestModelSwitching(TempSettingsMixin, unittest.TestCase):
 
         self.assertEqual((provider_id, model), ("openai-codex", "gpt-5.4-mini"))
 
-    @patch("models.providers.get_provider")
+    @patch("providers.models.providers.get_provider")
     def test_parse_model_target_keeps_current_provider_for_plain_model(self, mock_get) -> None:
         mock_get.return_value = Provider(id="ollama-cloud", name="Ollama Cloud", type="ollama", host="https://ollama.com")
 

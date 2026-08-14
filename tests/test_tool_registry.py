@@ -4,7 +4,7 @@ import json
 import unittest
 
 import kara
-import scheduled_runner
+from scheduling import runner as scheduled_runner
 from tools import registry
 
 

@@ -10,8 +10,8 @@ STUDY GUIDE
 * Validates section names and formats human-readable confirmation strings.
 * Key concepts: docstrings for tool schema generation, input validation, string formatting.
 """
-import memory_store
-import vector_index
+from memory import store as memory_store
+from memory import vector_index
 
 VALID_SECTIONS = memory_store.VALID_SECTIONS
 
