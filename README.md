@@ -337,6 +337,16 @@ uv run python -m gateway.run
 
 The gateway auto-restarts after source changes, persists conversations in `brain/state.db`, and delivers pending scheduler results after restarts. Regular chat replies render Markdown as Telegram HTML; malformed formatting falls back to plain text. Commands intentionally remain plain text.
 
+### Linux and macOS
+
+There is no auto-start integration yet — `install_gateway.py` exits with "This installer is for Windows only," and everything in `scripts/` is PowerShell, `.cmd`, or VBScript. Run the gateway in the foreground instead:
+
+```shell
+uv run python -m gateway.run
+```
+
+The daemon itself is already cross-platform: `gateway/restart.py` handles POSIX process spawning and liveness checks, and only special-cases Windows for the hidden console window. What's missing is the service registration that starts it at login or boot and brings it back if it dies. See [Roadmap](#roadmap).
+
 ## Configuration
 
 Copy `.env.example` and set only the integrations you use. Never commit `.env`.
@@ -498,6 +508,34 @@ Useful scripts are in `scripts/`, including gateway install/start/stop helpers a
 `main.py` dispatches the same things as subcommands: `uv run python main.py gateway|update|install|uninstall`, with no argument starting the CLI.
 
 > **Note:** `pyproject.toml` declares `[project.scripts]` (`kara`, `kara-gateway`, `kara-update`, `kara-install`, `kara-codex-auth`, `kara-github-auth`), but the project has no `[build-system]`, so uv treats it as a virtual project and never installs those entry points. `uv run kara-gateway` currently fails with "Failed to spawn". Use the commands above.
+
+## Roadmap
+
+### Gateway auto-start on macOS and Linux
+
+Running Kara 24/7 is the project's main use case, but only Windows can currently register the gateway to start on its own. Linux and macOS users have to launch it in the foreground and restart it by hand after a reboot.
+
+The daemon does not need to change for this. `gateway/run.py` already runs anywhere, and `gateway/restart.py` already spawns replacements and checks process liveness on POSIX. The gap is purely OS service registration:
+
+| Platform | Mechanism | Status |
+|---|---|---|
+| Windows | Scheduled Task at logon (`install_gateway.ps1`) | done |
+| Linux | **systemd user unit** (`systemctl --user enable --now kara-gateway`) | planned |
+| macOS | **launchd LaunchAgent** (`~/Library/LaunchAgents/*.plist`) | planned |
+
+A user-level service is the right scope on both — it starts at login, has access to the user's `.env` and `brain/`, and needs no root. Planned work:
+
+- Template a systemd unit and a launchd plist, with the repo path and interpreter filled in at install time rather than committed (the same mistake `launch_gateway.vbs` used to make).
+- Make `install_gateway.py` dispatch on `sys.platform` instead of refusing to run, and support `--uninstall` on all three.
+- Give `scripts/` POSIX start/stop/restart equivalents, reusing the existing `brain/gateway.pid` and restart-flag files so `/restart` and `kara-update` behave identically everywhere.
+- Document log locations per platform: `brain/logs/` stays the source of truth, but systemd also captures stdout in the journal.
+
+Interactive use, the CLI, and every tool group already work on all three platforms today — this is only about keeping the gateway alive unattended.
+
+### Other candidates
+
+- **Console scripts.** `pyproject.toml` declares six `[project.scripts]` entry points that are never installed, because there is no `[build-system]`. Adding a build backend would make them real, but the flat module layout needs explicit packaging config so a built wheel does not omit every top-level module.
+- **Dropping the AGPL dependency.** `pymupdf` is the only thing preventing a redistributable bundled artifact. If PDF extraction moved behind an optional extra, the default install would be fully permissive.
 
 ## Acknowledgements
 
