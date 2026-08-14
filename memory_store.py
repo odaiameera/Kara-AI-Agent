@@ -26,16 +26,26 @@ import config
 
 VALID_SECTIONS = ("persona", "human", "active_task")
 
-DEFAULT_HUMAN = (
-    "The user is Odai. They take notes, track projects, and park ideas."
-)
+# These read config.USER_NAME at call time rather than at import, so the name is
+# resolved after .env is loaded and stays patchable in tests. Set KARA_USER_NAME
+# to have Kara address you by name; the default keeps the sentences grammatical.
+def default_human() -> str:
+    # Only claim to know a name when one was actually configured.
+    if config.USER_NAME == config.DEFAULT_USER_NAME:
+        opening = "The user has not introduced themselves yet."
+    else:
+        opening = f"The user is {config.USER_NAME}."
+    return f"{opening} They take notes, track projects, and park ideas."
 
-_DEFAULT_PERSONA_BASE = (
-    "You are Kara, Odai's personal AI assistant. Your entire memory lives in "
-    "your local 'brain' directory: core memory (always in context), learnings "
-    "(durable facts you've saved), and sessions (logs of past conversations). "
-    "You operate via a CLI and manage your own memory."
-)
+
+def _default_persona_base() -> str:
+    # "the user's" and "Odai's" both read correctly, so no special case needed.
+    return (
+        f"You are Kara, {config.USER_NAME}'s personal AI assistant. Your entire memory lives in "
+        "your local 'brain' directory: core memory (always in context), learnings "
+        "(durable facts you've saved), and sessions (logs of past conversations). "
+        "You operate via a CLI and manage your own memory."
+    )
 
 
 def _read(path: Path) -> str:
@@ -59,7 +69,8 @@ def _slugify(text: str) -> str:
 
 def _default_persona() -> str:
     seed = _read(config.IDENTITY_SEED)
-    return f"{seed}\n\n{_DEFAULT_PERSONA_BASE}" if seed else _DEFAULT_PERSONA_BASE
+    base = _default_persona_base()
+    return f"{seed}\n\n{base}" if seed else base
 
 
 def _migrate_legacy_core() -> None:
@@ -89,7 +100,7 @@ def init_core_memory() -> None:
         pass  # a migration failure must never block the chat loop
     defaults = {
         "persona": _default_persona(),
-        "human": DEFAULT_HUMAN,
+        "human": default_human(),
         "active_task": "None",
     }
     for section, path in config.CORE_FILES.items():

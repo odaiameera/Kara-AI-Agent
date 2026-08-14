@@ -137,6 +137,14 @@ PROVIDER_TIMEOUT_SECONDS = _float_env("KARA_PROVIDER_TIMEOUT_SECONDS", 300.0, mi
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
+# What Kara calls its owner in seeded memory and in its persona. This is a single
+# constant on purpose: the name is woven into sentences rather than printed on its
+# own, so it has to be substituted, not stripped. The default is a noun phrase so
+# those sentences stay grammatical ("the user's personal AI assistant") on a fresh
+# clone; set KARA_USER_NAME to have Kara use your name instead.
+DEFAULT_USER_NAME = "the user"
+USER_NAME = os.getenv("KARA_USER_NAME", "").strip() or DEFAULT_USER_NAME
+
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")
 
 

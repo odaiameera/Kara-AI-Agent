@@ -92,9 +92,30 @@ class TranscriptWritersAreGoneTests(_BrainSandbox):
             )
 
     def test_learnings_are_still_markdown(self) -> None:
-        path = self.memory_store.save_learning("Odai prefers uv", "Use uv, not pip.")
+        path = self.memory_store.save_learning("prefers uv", "Use uv, not pip.")
         self.assertTrue(path.exists())
-        self.assertIn("Odai prefers uv", path.read_text(encoding="utf-8"))
+        self.assertIn("prefers uv", path.read_text(encoding="utf-8"))
+
+
+class OwnerNameTests(_BrainSandbox):
+    """The owner's name is configurable; the seeded defaults must stay
+    grammatical whether or not one is set."""
+
+    def test_defaults_are_neutral_without_configuration(self) -> None:
+        with patch.object(config, "USER_NAME", config.DEFAULT_USER_NAME):
+            self.assertIn("has not introduced themselves", self.memory_store.default_human())
+            self.assertIn(
+                "the user's personal AI assistant",
+                self.memory_store._default_persona_base(),
+            )
+
+    def test_a_configured_name_is_woven_into_both_defaults(self) -> None:
+        with patch.object(config, "USER_NAME", "Ada"):
+            self.assertIn("The user is Ada.", self.memory_store.default_human())
+            self.assertIn(
+                "Kara, Ada's personal AI assistant",
+                self.memory_store._default_persona_base(),
+            )
 
 
 class EndSessionTests(_BrainSandbox):
