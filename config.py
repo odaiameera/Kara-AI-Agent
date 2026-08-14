@@ -145,7 +145,10 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 DEFAULT_USER_NAME = "the user"
 USER_NAME = os.getenv("KARA_USER_NAME", "").strip() or DEFAULT_USER_NAME
 
-SEARXNG_URL = os.getenv("SEARXNG_URL", "https://search.ameera.dev").rstrip("/")
+# Optional self-hosted SearXNG. Deliberately unset by default: a shipped default
+# would send every install's search queries to somebody else's server. With no
+# value, web_search falls back to public providers instead.
+SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip().rstrip("/")
 
 
 def _configured_path_roots(name: str, defaults: tuple[Path, ...]) -> tuple[Path, ...]:

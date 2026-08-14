@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import unittest
 
+from unittest.mock import patch
+
+import tools.web_tools as web_tools
 from tools.web_tools import _parse_brave_html, _parse_duckduckgo_html
 
 
@@ -33,6 +36,31 @@ class WebToolsTests(unittest.TestCase):
         self.assertEqual(results[0]["url"], "https://example.com/docs")
         self.assertEqual(results[0]["title"], "Example Docs")
         self.assertIn("useful documentation", results[0]["content"])
+
+
+class UnconfiguredSearxngTests(unittest.TestCase):
+    """SEARXNG_URL ships empty, so the unset path is the one a fresh clone takes."""
+
+    def test_search_uses_public_fallback_when_no_instance_is_configured(self) -> None:
+        with patch.object(web_tools, "SEARXNG_URL", ""), patch.object(
+            web_tools, "_fallback_search", return_value="RESULTS"
+        ) as fallback:
+            self.assertEqual(web_tools.web_search("kara"), "RESULTS")
+        fallback.assert_called_once()
+
+    def test_no_request_is_built_against_an_empty_base_url(self) -> None:
+        with patch.object(web_tools, "SEARXNG_URL", ""), patch.object(
+            web_tools, "_fallback_search", return_value="RESULTS"
+        ), patch.object(web_tools, "get_client") as client:
+            web_tools.web_search("kara")
+        client.assert_not_called()
+
+    def test_unreachable_fallback_names_the_setting_to_configure(self) -> None:
+        with patch.object(web_tools, "SEARXNG_URL", ""), patch.object(
+            web_tools, "_fallback_search", return_value=None
+        ):
+            message = web_tools.web_search("kara")
+        self.assertIn("SEARXNG_URL", message)
 
 
 if __name__ == "__main__":
