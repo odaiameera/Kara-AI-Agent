@@ -153,7 +153,7 @@ Use these prompts through Telegram or Kara's CLI.
 Start Kara:
 
 ```bash
-cd /path/to/Kara-Agent-WorkInProgress
+cd /path/to/Kara-AI-Agent
 uv run agent.py
 ```
 

@@ -156,5 +156,5 @@ Initial MVP: CLI chat against Ollama with a file-backed local brain (core
 memory, learnings, session logs) and the first tool surface. Never tagged; this
 entry exists to mark the starting point for the history above.
 
-[0.2.0]: https://github.com/odaiameera/Kara-Agent-WorkInProgress/releases/tag/v0.2.0
-[0.1.0]: https://github.com/odaiameera/Kara-Agent-WorkInProgress/commits/main
+[0.2.0]: https://github.com/odaiameera/Kara-AI-Agent/releases/tag/v0.2.0
+[0.1.0]: https://github.com/odaiameera/Kara-AI-Agent/commits/main
