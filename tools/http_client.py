@@ -18,7 +18,7 @@ import config
 DEFAULT_TIMEOUT = float(os.getenv("WEB_HTTP_TIMEOUT", "30"))
 USER_AGENT = os.getenv(
     "WEB_USER_AGENT",
-    "KaraBot/1.0 (+https://github.com/odaiameera/Kara-Personal-Agent)",
+    "KaraBot/1.0 (+https://github.com/odaiameera/Kara-Agent-WorkInProgress)",
 )
 
 

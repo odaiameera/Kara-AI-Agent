@@ -164,15 +164,15 @@ Kara’s built-in semantic search uses cached hybrid ranking: embeddings plus ke
 ### 1. Clone the repository
 
 ```shell
-git clone https://github.com/odaiameera/Kara-Personal-Agent.git
-cd Kara-Personal-Agent
+git clone https://github.com/odaiameera/Kara-Agent-WorkInProgress.git
+cd Kara-Agent-WorkInProgress
 ```
 
 GitHub CLI users can instead run:
 
 ```shell
-gh repo clone odaiameera/Kara-Personal-Agent
-cd Kara-Personal-Agent
+gh repo clone odaiameera/Kara-Agent-WorkInProgress
+cd Kara-Agent-WorkInProgress
 ```
 
 ### 2. Install Python and dependencies
