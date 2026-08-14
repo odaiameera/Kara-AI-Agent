@@ -261,7 +261,7 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 Multiple allowed users can be comma-separated. Start the gateway in the foreground first so configuration errors are visible:
 
 ```shell
-uv run kara-gateway
+uv run python -m gateway.run
 ```
 
 Only IDs in `TELEGRAM_ALLOWED_USER_IDS` can use the bot.
@@ -332,7 +332,7 @@ uv run install_gateway.py
 This creates the `KaraGateway` Scheduled Task and launches the gateway without a console window. For debugging:
 
 ```powershell
-uv run kara-gateway
+uv run python -m gateway.run
 ```
 
 The gateway auto-restarts after source changes, persists conversations in `brain/state.db`, and delivers pending scheduler results after restarts. Regular chat replies render Markdown as Telegram HTML; malformed formatting falls back to plain text. Commands intentionally remain plain text.
@@ -484,18 +484,20 @@ Four tests currently fail under CPython 3.14.0rc2 — the `McpBridgeRealServerTe
 
 Useful scripts are in `scripts/`, including gateway install/start/stop helpers and file-work smoke tests. [`KARA_WINDOWS_SMOKE_TESTS.md`](KARA_WINDOWS_SMOKE_TESTS.md) is a manual end-to-end checklist for the Windows-only surface (system inventory, desktop control, scheduled tasks), which the automated suite covers only with mocks.
 
-### Console scripts
+### Entry points
 
-`uv sync` installs these entry points, equivalent to the longer `uv run python <file>` forms used above:
-
-| Command | Equivalent |
+| Task | Command |
 |---|---|
-| `uv run kara` | `uv run python agent.py` — the CLI |
-| `uv run kara-gateway` | the Telegram gateway (`gateway.run`) |
-| `uv run kara-install` | `uv run python install_gateway.py` — Windows logon task |
-| `uv run kara-codex-auth` | `uv run python codex_auth.py` — Codex device login |
-| `uv run kara-github-auth` | `uv run python github_auth.py` — GitHub device login |
-| `uv run kara-update` | `git pull --ff-only`, then `uv sync`, then signal a gateway restart |
+| CLI | `uv run python agent.py` |
+| Telegram gateway | `uv run python -m gateway.run` |
+| Windows logon task | `uv run python install_gateway.py` (`--uninstall` to remove) |
+| Codex device login | `uv run python codex_auth.py login` |
+| GitHub device login | `uv run python github_auth.py login` |
+| Update + restart gateway | `uv run python update.py` |
+
+`main.py` dispatches the same things as subcommands: `uv run python main.py gateway|update|install|uninstall`, with no argument starting the CLI.
+
+> **Note:** `pyproject.toml` declares `[project.scripts]` (`kara`, `kara-gateway`, `kara-update`, `kara-install`, `kara-codex-auth`, `kara-github-auth`), but the project has no `[build-system]`, so uv treats it as a virtual project and never installs those entry points. `uv run kara-gateway` currently fails with "Failed to spawn". Use the commands above.
 
 ## License / status
 

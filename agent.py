@@ -39,7 +39,7 @@ def main():
     )
     print(f" Context window: {config.MODEL_CONTEXT_TOKENS} tokens")
     print(" Commands: /models  /model  /model <name>  /new  exit")
-    print(" Gateway (24/7): uv run kara-gateway")
+    print(" Gateway (24/7): uv run python -m gateway.run")
     print("=========================================")
 
     warning = context_budget.check_configured_window(
