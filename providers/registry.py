@@ -27,7 +27,7 @@ import os
 from dataclasses import dataclass
 
 import config
-from provider_base import ChatProvider
+from providers.base import ChatProvider
 
 PROVIDERS_FILE = config.BRAIN_DIR / "providers.json"
 
@@ -106,7 +106,7 @@ def _discover_provider_defs_from_env() -> list[dict]:
     defs.extend(_discover_openai_compatible_defs(seen_ids))
 
     # OpenAI Codex is OAuth-backed, so it does not have an API key env var.
-    # Credentials live in brain/auth.json after `uv run python codex_auth.py login`.
+    # Credentials live in brain/auth.json after `uv run python -m auth.codex login`.
     if "openai-codex" not in seen_ids:
         defs.append(
             {
@@ -240,15 +240,15 @@ def get_provider(provider_id: str) -> Provider | None:
 def to_chat_provider(provider: Provider) -> ChatProvider:
     """Build a runtime ChatProvider adapter from a persisted Provider record."""
     if provider.type == "ollama":
-        from providers_ollama import OllamaProvider
+        from providers.ollama import OllamaProvider
 
         return OllamaProvider(provider)
     if provider.type == "openai-codex":
-        from providers_codex import OpenAICodexProvider
+        from providers.codex import OpenAICodexProvider
 
         return OpenAICodexProvider(provider)
     if provider.type == "openai-compatible":
-        from providers_openai_compatible import OpenAICompatibleProvider
+        from providers.openai_compatible import OpenAICompatibleProvider
 
         return OpenAICompatibleProvider(provider)
     raise RuntimeError(f"Unsupported provider type: {provider.type}")

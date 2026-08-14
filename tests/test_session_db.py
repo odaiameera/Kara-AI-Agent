@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import config
-import session_db
+from memory import session_db
 
 
 class TestToolCallPersistence(unittest.TestCase):

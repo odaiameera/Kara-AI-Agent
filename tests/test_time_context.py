@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-import time_context
+from scheduling import time_context
 
 
 class RuntimeTimeContextTests(unittest.TestCase):

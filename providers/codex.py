@@ -13,16 +13,16 @@ from typing import Any
 
 import httpx
 
-import auth_store
-import codex_auth
-from provider_base import (
+from auth import store as auth_store
+from auth import codex as codex_auth
+from providers.base import (
     ChatResult,
     ProviderError,
     Usage,
     is_retryable_status,
     tool_calls_from_openai_shape,
 )
-from providers import Provider
+from providers.registry import Provider
 
 
 class OpenAICodexProvider:

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import kara
 from tests.support import make_session
-from provider_base import (
+from providers.base import (
     ChatResult,
     ProviderError,
     ToolCall,

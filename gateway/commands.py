@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import codex_auth
+from auth import codex as codex_auth
 import config
 import gateway.restart as gw_restart
-import models
-import session_db
+from providers import models
+from memory import session_db
 from kara import KaraSession
 
 
@@ -79,7 +79,7 @@ def handle_command(session: KaraSession, text: str) -> str | None:
             return "Auth commands: /auth codex"
         return (
             "OpenAI Codex login is done from a local terminal so you can see the browser code:\n"
-            "  uv run python codex_auth.py login\n\n"
+            "  uv run python -m auth.codex login\n\n"
             "Then restart Kara or send /restart, and use /codex-status to verify."
         )
     if lower == "/codex-status":

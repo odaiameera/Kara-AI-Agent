@@ -1,6 +1,6 @@
 """Shared OAuth token store for Kara's provider logins (``brain/auth.json``).
 
-Both ``codex_auth.py`` and ``github_auth.py`` persist tokens into one file:
+Both ``auth/codex.py`` and ``auth/github.py`` persist tokens into one file:
 
     brain/auth.json
       {"version": 1, "providers": {"openai-codex": {...}, "github": {...}}}

@@ -3,9 +3,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-import context_budget
+from memory import context_budget
 import kara
-from provider_base import ChatResult
+from providers.base import ChatResult
 from tests.support import FakeProvider, make_session
 
 
@@ -181,7 +181,7 @@ class LiveResultCapTests(unittest.TestCase):
 
     def test_the_session_applies_the_cap_when_storing_a_result(self) -> None:
         session = make_session(FakeProvider())
-        from provider_base import ToolCall
+        from providers.base import ToolCall
 
         with patch.object(kara.config, "MODEL_CONTEXT_TOKENS", 8000), patch.dict(
             kara.TOOL_REGISTRY, {"read_file": lambda **kw: "y" * 400_000}
@@ -284,7 +284,7 @@ class SessionCompactionTests(unittest.TestCase):
 
     def test_a_batch_of_large_results_cannot_overrun_the_window(self) -> None:
         """The per-result cap bounds each result; a batch needs bounding too."""
-        from provider_base import ToolCall
+        from providers.base import ToolCall
 
         names = ("web_search", "github_list_commits", "read_file")
 
@@ -328,7 +328,7 @@ class SessionCompactionTests(unittest.TestCase):
         self.assertTrue(_pairs_are_intact(session.messages))
 
     def test_reported_prompt_tokens_are_recorded(self) -> None:
-        from provider_base import Usage
+        from providers.base import Usage
 
         class _Reporting:
             def chat(self, model, messages, tools=None):

@@ -12,7 +12,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import kara
-from provider_base import ChatResult, ToolCall
+from providers.base import ChatResult, ToolCall
 from tools import registry
 
 

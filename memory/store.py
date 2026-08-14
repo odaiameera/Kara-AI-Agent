@@ -169,7 +169,7 @@ def migrate_legacy_session_logs() -> int:
     if config.SESSIONS_MIGRATED_MARKER.exists():
         return 0
 
-    import session_db
+    from memory import session_db
 
     config.ensure_brain()
     imported = 0

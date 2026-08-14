@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import time
 
-import providers
-from provider_base import ChatProvider, ProviderError
+from providers import registry as providers
+from providers.base import ChatProvider, ProviderError
 
 EmbeddingError = ProviderError
 

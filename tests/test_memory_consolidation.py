@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import config
-from provider_base import ChatResult
+from providers.base import ChatResult
 
 
 class _BrainSandbox(unittest.TestCase):
@@ -42,7 +42,7 @@ class _BrainSandbox(unittest.TestCase):
         for d in (root, root / "core", root / "learnings", root / "sessions", root / "index"):
             d.mkdir(parents=True, exist_ok=True)
 
-        import session_db
+        from memory import session_db
 
         self.session_db = session_db
         self._db_patch = patch.object(session_db, "DB_PATH", root / "state.db")
@@ -50,8 +50,8 @@ class _BrainSandbox(unittest.TestCase):
         session_db._initialized = False
         session_db.init_db()
 
-        import memory_store
-        import vector_index
+        from memory import store as memory_store
+        from memory import vector_index
 
         self.memory_store = importlib.reload(memory_store)
         self.vector_index = importlib.reload(vector_index)
@@ -88,7 +88,7 @@ class TranscriptWritersAreGoneTests(_BrainSandbox):
         for name in ("start_session", "log_turn", "finalize_session"):
             self.assertFalse(
                 hasattr(self.memory_store, name),
-                f"memory_store.{name} should have been removed",
+                f"memory.store.{name} should have been removed",
             )
 
     def test_learnings_are_still_markdown(self) -> None:

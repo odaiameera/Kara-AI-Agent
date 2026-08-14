@@ -1,4 +1,4 @@
-"""GitHub tools for Kara, authenticated via OAuth Device Flow (github_auth.py).
+"""GitHub tools for Kara, authenticated via OAuth Device Flow (auth/github.py).
 
 Covers repos/files/code search, issues, pull requests, Actions runs, and
 notifications read-only, plus approval-gated write actions (create/comment/
@@ -30,9 +30,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-import auth_store
+from auth import store as auth_store
 import config
-import github_auth
+from auth import github as github_auth
 from tools.file_tools import _resolve_path
 
 API_BASE_URL = "https://api.github.com"
@@ -60,7 +60,7 @@ def _client_instance() -> httpx.Client:
 def _not_ready_message() -> str:
     if not github_auth.has_credentials():
         return (
-            "GitHub is not connected. Run: uv run python github_auth.py login "
+            "GitHub is not connected. Run: uv run python -m auth.github login "
             "(requires GITHUB_CLIENT_ID in .env from a GitHub OAuth App "
             "with Device Flow enabled — not a fine-grained personal access token)."
         )
@@ -95,7 +95,7 @@ def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
     resp = _client_instance().request(method, path, headers=headers, **kwargs)
     if resp.status_code == 401:
         raise GitHubApiError(
-            "GitHub token was rejected (401). Run `uv run python github_auth.py login` again."
+            "GitHub token was rejected (401). Run `uv run python -m auth.github login` again."
         )
     if resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0":
         reset = resp.headers.get("X-RateLimit-Reset", "unknown")

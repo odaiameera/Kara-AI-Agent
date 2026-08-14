@@ -18,13 +18,13 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 import config
-import context_budget
-import memory_store
-import models
-import providers
-import session_db
-import time_context
-from provider_base import ChatResult, ProviderError, call_with_retry
+from memory import context_budget
+from memory import store as memory_store
+from providers import models
+from providers import registry as providers
+from memory import session_db
+from scheduling import time_context
+from providers.base import ChatResult, ProviderError, call_with_retry
 from tools import registry
 from tools.computer_tools import set_computer_request_context
 

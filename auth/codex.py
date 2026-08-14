@@ -17,8 +17,8 @@ from typing import Any, Callable
 
 import httpx
 
-import auth_store
-from auth_store import auth_file  # re-exported: callers use codex_auth.auth_file()
+from auth import store as auth_store
+from auth.store import auth_file  # re-exported: callers use codex_auth.auth_file()
 
 CODEX_PROVIDER_ID = "openai-codex"
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -66,7 +66,7 @@ def read_tokens() -> dict[str, Any]:
     state = auth_store.read_provider(CODEX_PROVIDER_ID)
     if state is None:
         raise CodexAuthError(
-            "No OpenAI Codex credentials stored. Run `uv run python codex_auth.py login`."
+            "No OpenAI Codex credentials stored. Run `uv run python -m auth.codex login`."
         )
     tokens = state.get("tokens")
     if not isinstance(tokens, dict):

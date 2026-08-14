@@ -16,8 +16,8 @@ from typing import Any
 import httpx
 
 import config
-from provider_base import ProviderError, is_retryable_status
-from providers import Provider
+from providers.base import ProviderError, is_retryable_status
+from providers.registry import Provider
 
 
 # LEARN: Subclassing ProviderError gives a named exception type callers can catch specifically.

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import kara
-from provider_base import ChatResult
+from providers.base import ChatResult
 from tests.support import FakeProvider as _FakeProvider
 from tests.support import make_session, tool_turn as _tool_turn
 from tools import registry

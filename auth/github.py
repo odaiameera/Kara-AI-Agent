@@ -17,8 +17,8 @@ from typing import Any, Callable, TextIO
 
 import httpx
 
-import auth_store
-from auth_store import auth_file  # re-exported: callers use github_auth.auth_file()
+from auth import store as auth_store
+from auth.store import auth_file  # re-exported: callers use github_auth.auth_file()
 
 GITHUB_PROVIDER_ID = "github"
 GITHUB_CLIENT_ID_ENV = "GITHUB_CLIENT_ID"
@@ -84,7 +84,7 @@ def read_tokens() -> dict[str, Any]:
     state = auth_store.read_provider(GITHUB_PROVIDER_ID)
     if state is None:
         raise GitHubAuthError(
-            "No GitHub credentials stored. Run `uv run python github_auth.py login`."
+            "No GitHub credentials stored. Run `uv run python -m auth.github login`."
         )
     tokens = state.get("tokens")
     if not isinstance(tokens, dict) or not str(tokens.get("access_token", "") or "").strip():

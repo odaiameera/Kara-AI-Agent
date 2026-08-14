@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from typing import Any
 
-import scheduler
+from scheduling import scheduler
 
 _DEFAULT_TIMEZONE = os.getenv("KARA_TIMEZONE", "Europe/Dublin").strip() or "Europe/Dublin"
 _request_context: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(

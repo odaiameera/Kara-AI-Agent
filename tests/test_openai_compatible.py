@@ -3,10 +3,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-import providers
-from provider_base import ProviderError
-from providers import Provider
-from providers_openai_compatible import (
+from providers import registry as providers
+from providers.base import ProviderError
+from providers.registry import Provider
+from providers.openai_compatible import (
     OpenAICompatibleProvider,
     chat_result_from_openai,
 )
@@ -139,7 +139,7 @@ class TransportTests(unittest.TestCase):
             return _Resp({"choices": [{"message": {"role": "assistant", "content": "ok"}}]})
 
         tools = [{"type": "function", "function": {"name": "t", "parameters": {}}}]
-        with patch("providers_openai_compatible.httpx.post", fake_post):
+        with patch("providers.openai_compatible.httpx.post", fake_post):
             result = _provider().chat("llama-3.3", [{"role": "user", "content": "hi"}], tools=tools)
 
         self.assertEqual(result.content, "ok")
@@ -157,7 +157,7 @@ class TransportTests(unittest.TestCase):
             response = httpx.Response(429, text="slow down", request=request)
             raise httpx.HTTPStatusError("429", request=request, response=response)
 
-        with patch("providers_openai_compatible.httpx.post", fake_post):
+        with patch("providers.openai_compatible.httpx.post", fake_post):
             with self.assertRaises(ProviderError) as ctx:
                 _provider().chat("m", [{"role": "user", "content": "hi"}])
         self.assertTrue(ctx.exception.retryable)
@@ -171,7 +171,7 @@ class TransportTests(unittest.TestCase):
             response = httpx.Response(401, text="bad key", request=request)
             raise httpx.HTTPStatusError("401", request=request, response=response)
 
-        with patch("providers_openai_compatible.httpx.post", fake_post):
+        with patch("providers.openai_compatible.httpx.post", fake_post):
             with self.assertRaises(ProviderError) as ctx:
                 _provider().chat("m", [{"role": "user", "content": "hi"}])
         self.assertFalse(ctx.exception.retryable)
@@ -182,7 +182,7 @@ class TransportTests(unittest.TestCase):
         def fake_post(url, headers=None, json=None, timeout=None):
             raise httpx.ConnectError("refused")
 
-        with patch("providers_openai_compatible.httpx.post", fake_post):
+        with patch("providers.openai_compatible.httpx.post", fake_post):
             with self.assertRaises(ProviderError) as ctx:
                 _provider().chat("m", [{"role": "user", "content": "hi"}])
         self.assertTrue(ctx.exception.retryable)
@@ -204,7 +204,7 @@ class TransportTests(unittest.TestCase):
         def fake_get(url, headers=None, timeout=None):
             return _Resp({"data": [{"id": "llama-3.3"}, {"id": "mixtral"}]})
 
-        with patch("providers_openai_compatible.httpx.get", fake_get):
+        with patch("providers.openai_compatible.httpx.get", fake_get):
             self.assertEqual(_provider().list_models(), ["llama-3.3", "mixtral"])
 
 

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import github_auth
+from auth import github as github_auth
 from tools import computer_tools, github_tools
 
 
@@ -169,7 +169,10 @@ class GitSubprocessTests(unittest.TestCase):
         helper_config = command[4]
         self.assertTrue(helper_config.startswith("credential.helper=!"))
         helper = helper_config.removeprefix("credential.helper=")
-        self.assertIn("github_auth.py", helper)
+        # The helper embeds the auth module's real file path, so assert against
+        # that rather than a hardcoded name -- this then survives the module
+        # moving again, and stays correct on Windows path separators.
+        self.assertIn(Path(github_auth.__file__).name, helper)
         self.assertIn("credential", helper)
         self.assertNotIn("KARA_GIT_OAUTH_TOKEN", helper)
         self.assertNotIn("tok-secret", helper)

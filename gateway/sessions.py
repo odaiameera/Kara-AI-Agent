@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import threading
 
-import session_db
+from memory import session_db
 from kara import KaraSession
 
 log = logging.getLogger("kara.gateway.sessions")
