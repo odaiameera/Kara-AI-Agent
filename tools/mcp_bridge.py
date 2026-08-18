@@ -6,16 +6,6 @@ Python SDK is async-only, so this module owns one background thread per MCP
 server subprocess, running a persistent asyncio event loop, and exposes
 ``list_tools()``/``call_tool()`` as ordinary blocking calls. Any stdio MCP
 server can be wired into Kara this way, not just Mnemosyne.
-
-STUDY GUIDE
------------
-* One background thread per server keeps one long-lived MCP session alive,
-  the same "shared singleton" pattern as tools/http_client.py's httpx.Client.
-* ``asyncio.run_coroutine_threadsafe`` bridges a sync call into the
-  background loop and blocks the caller for the result — the standard way
-  to drive an async library from sync code without an event loop per call.
-* Key concepts: background event loop thread, thread-safe coroutine
-  submission, async context managers kept open across many calls.
 """
 from __future__ import annotations
 
@@ -31,11 +21,8 @@ from typing import Any
 # matches the lazy-subprocess design below. Narrower import paths do NOT help;
 # `mcp.client.session` still drags in the server modules.
 
-
 class McpBridgeError(RuntimeError):
     """Raised when an MCP server subprocess can't be reached or returns an error."""
-
-
 class McpServerBridge:
     """Owns one persistent background connection to one MCP server subprocess.
 
@@ -43,7 +30,6 @@ class McpServerBridge:
     Kara can start up fine even if the server's binary isn't installed yet —
     the error only surfaces when a tool that needs it is actually called.
     """
-
     def __init__(
         self,
         command: str,
@@ -146,7 +132,6 @@ class McpServerBridge:
                 # Startup failure can close the loop between is_closed() and
                 # call_soon_threadsafe(). Stopping an already-dead bridge is done.
                 pass
-
 
 def extract_text(result: Any) -> str:
     """Flatten an MCP CallToolResult's text content blocks into one string."""

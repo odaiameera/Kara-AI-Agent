@@ -1,10 +1,5 @@
 """Shared slash-command handlers for CLI and Telegram gateway.
 
-STUDY GUIDE
------------
-* Parses /models, /model, /new, /restart and returns reply text or None.
-* Same handlers work in CLI and Telegram — single source of truth for commands.
-* Key concepts: early return pattern, string prefix checks, command dispatch.
 """
 from __future__ import annotations
 
@@ -16,7 +11,6 @@ import gateway.restart as gw_restart
 from providers import models
 from memory import session_db
 from kara import KaraSession
-
 
 def _format_usage(session: KaraSession) -> str:
     """Tokens and effort for this session and for today."""
@@ -44,7 +38,6 @@ def _format_usage(session: KaraSession) -> str:
         lines.append("No turns recorded yet.")
     return "\n".join(lines)
 
-
 def _format_context(session: KaraSession) -> str:
     """How full the context window is, and when compaction will kick in."""
     used = session.context_tokens()
@@ -62,7 +55,6 @@ def _format_context(session: KaraSession) -> str:
             f"  model: {session.provider.id} / {session.model}",
         ]
     )
-
 
 def handle_command(session: KaraSession, text: str) -> str | None:
     """Return response text if *text* is a slash command, else None."""

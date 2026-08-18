@@ -14,12 +14,6 @@ Targets Himalaya v1.x, whose CLI shape is:
   - add a flag:       ``flag add -f <folder> <id> <flag>`` (id + flag are positional)
   - send raw message: ``message send`` (raw RFC 5322 piped via stdin)
 
-STUDY GUIDE
------------
-* Wraps an external CLI with ``subprocess.run`` and parses JSON output.
-* Returns setup instructions when Himalaya is missing or not configured.
-* Gates outbound mail behind ``EMAIL_SEND_ENABLED`` for safety on Telegram.
-* Key concepts: subprocess, JSON parsing, optional tools, environment flags.
 """
 from __future__ import annotations
 
@@ -37,10 +31,8 @@ import config  # loads .env (HIMALAYA_BIN, etc.)
 DEFAULT_TIMEOUT = float(os.getenv("HIMALAYA_TIMEOUT", "60"))
 MAX_BODY_CHARS = int(os.getenv("EMAIL_READ_MAX_CHARS", "12000"))
 
-
 def _himalaya_bin() -> str:
     return os.getenv("HIMALAYA_BIN", "himalaya").strip() or "himalaya"
-
 
 def _himalaya_config_path() -> Path | None:
     configured = os.getenv("HIMALAYA_CONFIG", "").strip()
@@ -57,13 +49,11 @@ def _himalaya_config_path() -> Path | None:
             return candidate
     return None
 
-
 def _resolve_himalaya() -> str | None:
     configured = _himalaya_bin()
     if Path(configured).exists():
         return configured
     return shutil.which(configured)
-
 
 def _not_ready_message() -> str:
     if _resolve_himalaya() is None:
@@ -80,7 +70,6 @@ def _not_ready_message() -> str:
             "Optional: set HIMALAYA_CONFIG or HIMALAYA_ACCOUNT in .env"
         )
     return ""
-
 
 def _run_himalaya(
     *args: str, input_text: str | None = None, json_output: bool = False
@@ -112,11 +101,9 @@ def _run_himalaya(
     )
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
-
 def _require_ready() -> str | None:
     msg = _not_ready_message()
     return msg or None
-
 
 def _format_address(addr: Any) -> str:
     # LEARN: Himalaya v1 gives a single object {"name": ..., "addr": ...} for from/to.
@@ -127,7 +114,6 @@ def _format_address(addr: Any) -> str:
     if isinstance(addr, list):
         return ", ".join(_format_address(a) for a in addr) or "unknown"
     return str(addr) if addr else "unknown"
-
 
 def _format_envelopes(envelopes: list[dict[str, Any]]) -> str:
     if not envelopes:
@@ -144,23 +130,19 @@ def _format_envelopes(envelopes: list[dict[str, Any]]) -> str:
         lines.append(f"- id={msg_id} | {date} | from {sender} | {subject}{flag_txt}{attach}")
     return "\n".join(lines)
 
-
 def _parse_json(out: str) -> Any:
     try:
         return json.loads(out)
     except json.JSONDecodeError:
         return None
 
-
 def _truncate(text: str, limit: int = MAX_BODY_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n\n... (truncated, {len(text) - limit} more chars)"
 
-
 def _send_enabled() -> bool:
     return os.getenv("EMAIL_SEND_ENABLED", "").strip().lower() in ("1", "true", "yes")
-
 
 def email_status() -> str:
     """
@@ -184,7 +166,6 @@ def email_status() -> str:
         f"Config: {config_path}. Account: {account}. Sending: {send}."
     )
 
-
 def email_list_mailboxes() -> str:
     """
     List email folders/mailboxes (INBOX, Sent, etc.) for the configured account.
@@ -205,7 +186,6 @@ def email_list_mailboxes() -> str:
     if not names:
         return "No folders found."
     return "Folders:\n" + "\n".join(f"- {name}" for name in names)
-
 
 def email_list_envelopes(mailbox: str = "INBOX", page: int = 1) -> str:
     """
@@ -240,7 +220,6 @@ def email_list_envelopes(mailbox: str = "INBOX", page: int = 1) -> str:
     if not isinstance(data, list):
         return out or "No messages returned."
     return _format_envelopes(data)
-
 
 def email_search(query: str, mailbox: str = "INBOX") -> str:
     """
@@ -280,7 +259,6 @@ def email_search(query: str, mailbox: str = "INBOX") -> str:
         return out or "No search results."
     return _format_envelopes(data)
 
-
 def email_read(message_id: int, mailbox: str = "INBOX") -> str:
     """
     Read the full text of an email by its folder-local id (from list/search results).
@@ -310,7 +288,6 @@ def email_read(message_id: int, mailbox: str = "INBOX") -> str:
     if code != 0:
         return f"Error reading message {mid}: {err_out or out or 'unknown error'}"
     return _truncate(out or "(empty message)")
-
 
 def email_mark_seen(message_id: int, mailbox: str = "INBOX") -> str:
     """
@@ -343,7 +320,6 @@ def email_mark_seen(message_id: int, mailbox: str = "INBOX") -> str:
         return f"Error marking message {mid} seen: {err_out or out or 'unknown error'}"
     return out or f"Marked message {mid} in {mailbox} as seen."
 
-
 def _build_raw_message(to: str, subject: str, body: str, cc: str, bcc: str) -> str:
     # LEARN: EmailMessage builds a valid RFC 5322 message we can pipe to 'message send'.
     msg = EmailMessage()
@@ -358,7 +334,6 @@ def _build_raw_message(to: str, subject: str, body: str, cc: str, bcc: str) -> s
         msg["From"] = from_addr
     msg.set_content(body)
     return msg.as_string()
-
 
 def email_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "") -> str:
     """

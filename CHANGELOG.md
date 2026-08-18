@@ -7,6 +7,20 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the major version is `0`, the configuration surface and tool APIs may
 still change between minor releases.
 
+## [Unreleased]
+
+### Added
+
+- Linux systemd user-unit install via `install_gateway.py` (paths filled at
+  install time; nothing machine-specific is committed).
+- GitHub Actions CI: `uv sync --frozen` and the unittest suite on CPython 3.14.
+
+### Changed
+
+- Package name is `kara` instead of `personal-agent`.
+- `brain/auth.json` is forced to owner-read/write (`0600`) on every write.
+- Tutorial `STUDY GUIDE` blocks removed from module docstrings.
+
 ## [0.2.0] - 2026-08-14
 
 The first release prepared for public use. `0.1.0` was the initial MVP and was

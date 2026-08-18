@@ -1,11 +1,4 @@
 """Shared HTTP helpers for web tools (Cloudflare Access, timeouts).
-
-STUDY GUIDE
------------
-* Builds default headers (User-Agent, Cloudflare Access) for web search and fetch.
-* ``get_client`` returns one shared httpx.Client — connections are pooled and
-  reused across calls instead of paying a new TCP/TLS handshake every time.
-* Key concepts: module-level singleton, lazy initialization, dict unpacking ``**headers``.
 """
 from __future__ import annotations
 
@@ -21,7 +14,6 @@ USER_AGENT = os.getenv(
     "KaraBot/1.0 (+https://github.com/odaiameera/Kara-AI-Agent)",
 )
 
-
 def cloudflare_access_headers() -> dict[str, str]:
     """Headers for Cloudflare Access-protected services (e.g. SearXNG)."""
     headers: dict[str, str] = {}
@@ -35,7 +27,6 @@ def cloudflare_access_headers() -> dict[str, str]:
         headers["Cookie"] = cookie
     return headers
 
-
 def default_headers(*, accept: str = "*/*") -> dict[str, str]:
     # LEARN: ``**cloudflare_access_headers()`` merges another dict into this one (dict unpacking).
     h = {
@@ -45,11 +36,9 @@ def default_headers(*, accept: str = "*/*") -> dict[str, str]:
     }
     return h
 
-
 # LEARN: One shared client per process — httpx.Client is thread-safe and keeps
 # a connection pool, so repeated search/fetch calls reuse open connections.
 _shared_client: httpx.Client | None = None
-
 
 def get_client() -> httpx.Client:
     """Return the shared HTTP client (created lazily on first use).

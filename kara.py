@@ -1,11 +1,5 @@
 """Kara agent core: shared logic for CLI and Telegram (Ollama backend).
 
-STUDY GUIDE
------------
-* Defines ``KaraSession`` — the heart of chat: messages, tools, provider, persistence.
-* Pulls the tool registry and JSON schemas from ``tools.registry``.
-* Implements the tool loop: model reply → execute tools → feed results back → repeat.
-* Key concepts: classes, type aliases (``Callable``), ``**kwargs``, dict message format, properties.
 """
 from __future__ import annotations
 
@@ -48,23 +42,19 @@ MAX_PARALLEL_TOOLS = 6
 # LEARN: Type alias — documents that callbacks take (tool_name, args_dict) and return nothing.
 ToolCallback = Callable[[str, dict], None]
 
-
 class TurnStopped(Exception):
     """Raised inside the tool loop when a turn must end before the model is done.
 
     Carries the partial answer to hand back, so a stopped turn reports what it
     was doing instead of failing silently or hanging.
     """
-
     def __init__(self, reason: str, message: str):
         super().__init__(message)
         self.reason = reason
         self.message = message
 
-
 class _TurnBudget:
     """Bounds one turn: iterations, wall clock, and stuck-loop detection."""
-
     def __init__(
         self,
         *,
@@ -139,7 +129,6 @@ class _TurnBudget:
                 f"{self._repeat_count} times in a row without making progress.",
             )
 
-
 def get_system_instruction(channel: str = "cli") -> str:
     # LEARN: Ternary picks Telegram-specific vs CLI tone; f-string injects core memory into the prompt.
     channel_hint = (
@@ -175,11 +164,8 @@ You manage your own memory, which lives in your local brain directory.
 - You may format replies with Markdown — **bold**, *italics*, `inline code`, fenced ``` code blocks ```, bullet/numbered lists, and [links](https://example.com). On Telegram these render as rich text, so use them where they aid clarity (put code in code blocks).
 - {channel_hint}
 """
-
-
 class KaraSession:
     """One conversation session with Kara (provider + model + SQLite-backed history)."""
-
     def __init__(
         self,
         session_key: str,
@@ -427,7 +413,6 @@ class KaraSession:
         Provider failover previously happened only when a session was created, so
         a provider that went down mid-conversation broke every following turn.
         """
-
         def attempt() -> ChatResult:
             return self.provider.chat(self.model, request_messages, tools=tools)
 

@@ -4,11 +4,6 @@ These are no longer Kara's memory backbone - that lives in the local ``brain/``
 directory. They remain as optional tools for reading/writing an *external*
 Obsidian vault, active only if OBSIDIAN_VAULT_PATH points to a real folder.
 
-STUDY GUIDE
------------
-* Searches, reads, and writes markdown files in an external Obsidian vault.
-* Returns friendly messages when no vault is configured instead of crashing.
-* Key concepts: ``Path.rglob``, relative paths, append vs overwrite file modes.
 """
 from pathlib import Path
 
@@ -18,7 +13,6 @@ _NO_VAULT_MSG = (
     "No Obsidian vault is configured. Set OBSIDIAN_VAULT_PATH in .env to an "
     "existing folder to enable vault access. (Kara's own memory does not need this.)"
 )
-
 
 def search_obsidian(query: str) -> str:
     """
@@ -58,7 +52,6 @@ def search_obsidian(query: str) -> str:
         return f"No notes found matching '{query}'."
     return "Search results:\n" + "\n".join(results)
 
-
 def read_obsidian_note(file_path: str) -> str:
     """
     Read the full content of a specific note in the external Obsidian vault.
@@ -80,7 +73,6 @@ def read_obsidian_note(file_path: str) -> str:
         return full_path.read_text(encoding="utf-8")
     except Exception as e:
         return f"Error reading note: {str(e)}"
-
 
 def write_obsidian_note(file_path: str, content: str, overwrite: bool = False) -> str:
     """

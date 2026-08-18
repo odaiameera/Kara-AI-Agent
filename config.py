@@ -16,12 +16,6 @@ Everything under ``brain/`` is runtime state and is gitignored. An optional
 ``memory/IDENTITY.md`` acts only as a seed for Kara's persona on first run; it is
 not shipped with the repo, and Kara falls back to a built-in persona without it.
 
-STUDY GUIDE
------------
-* Loads settings from ``.env`` and defines every path Kara uses (brain, logs, index).
-* Resolves optional Obsidian vault and Telegram allow-list from environment variables.
-* Creates the brain directory tree on import so the app can start cleanly.
-* Key concepts: ``pathlib.Path``, ``os.getenv``, module-level constants, side effects on import.
 """
 import os
 from functools import lru_cache
@@ -78,14 +72,12 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", _default_host).rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
-
 def _positive_int_env(name: str, default: int, *, minimum: int = 1) -> int:
     try:
         value = int(os.getenv(name, "").strip() or default)
     except ValueError:
         return default
     return value if value >= minimum else default
-
 
 # Context window Kara asks the model for. Ollama silently truncates a prompt that
 # exceeds num_ctx, and its default is 4096 — smaller than Kara's system prompt
@@ -107,14 +99,12 @@ MAX_REPEATED_TOOL_CALLS = _positive_int_env("KARA_MAX_REPEATED_TOOL_CALLS", 3, m
 # context for the rest of the session.
 MAX_TOOL_RESULT_CHARS = _positive_int_env("KARA_MAX_TOOL_RESULT_CHARS", 8000, minimum=500)
 
-
 def _fraction_env(name: str, default: float) -> float:
     try:
         value = float(os.getenv(name, "").strip() or default)
     except ValueError:
         return default
     return value if 0.1 <= value <= 0.95 else default
-
 
 # Compact once the conversation would use this share of the context window.
 COMPACT_AT_FRACTION = _fraction_env("KARA_COMPACT_AT_FRACTION", 0.75)
@@ -123,14 +113,12 @@ COMPACT_AT_FRACTION = _fraction_env("KARA_COMPACT_AT_FRACTION", 0.75)
 # used to end the whole turn on the first occurrence.
 PROVIDER_RETRY_ATTEMPTS = _positive_int_env("KARA_PROVIDER_RETRY_ATTEMPTS", 3)
 
-
 def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
     try:
         value = float(os.getenv(name, "").strip() or default)
     except ValueError:
         return default
     return value if value >= minimum else default
-
 
 PROVIDER_RETRY_BASE_DELAY = _float_env("KARA_PROVIDER_RETRY_BASE_DELAY", 1.0)
 PROVIDER_TIMEOUT_SECONDS = _float_env("KARA_PROVIDER_TIMEOUT_SECONDS", 300.0, minimum=5.0)
@@ -150,7 +138,6 @@ USER_NAME = os.getenv("KARA_USER_NAME", "").strip() or DEFAULT_USER_NAME
 # value, web_search falls back to public providers instead.
 SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip().rstrip("/")
 
-
 def _configured_path_roots(name: str, defaults: tuple[Path, ...]) -> tuple[Path, ...]:
     """Parse an os.pathsep-separated allow-list of absolute filesystem roots."""
     raw = os.getenv(name, "").strip()
@@ -165,7 +152,6 @@ def _configured_path_roots(name: str, defaults: tuple[Path, ...]) -> tuple[Path,
             roots.append(path)
     return tuple(roots)
 
-
 # General file tools can read/search the project and the user's home directory by
 # default. Writes stay inside the project unless the user explicitly expands the
 # allow-list in .env. Sensitive credential/profile locations are separately
@@ -174,7 +160,6 @@ FILE_READ_ROOTS = _configured_path_roots(
     "KARA_FILE_READ_ROOTS", (PACKAGE_DIR, Path.home())
 )
 FILE_WRITE_ROOTS = _configured_path_roots("KARA_FILE_WRITE_ROOTS", (PACKAGE_DIR,))
-
 
 # LEARN: @lru_cache(maxsize=1) memoizes the result — .env is loaded once at import,
 # so re-parsing the same string on every Telegram message is wasted work.
@@ -192,7 +177,6 @@ def telegram_allowed_user_ids() -> frozenset[int]:
             ids.add(int(part))
     return frozenset(ids)
 
-
 def resolve_vault_path() -> Path | None:
     """Resolve an optional external Obsidian vault for reference lookups.
 
@@ -209,13 +193,11 @@ def resolve_vault_path() -> Path | None:
             return candidate
     return None
 
-
 def ensure_brain() -> None:
     """Create the brain directory tree if it doesn't exist yet."""
     # LEARN: mkdir(parents=True, exist_ok=True) creates nested folders without error if they exist.
     for d in (BRAIN_DIR, CORE_DIR, LEARNINGS_DIR, SESSIONS_DIR, INDEX_DIR, LOG_DIR):
         d.mkdir(parents=True, exist_ok=True)
-
 
 # LEARN: Calling a function at module import time runs setup as soon as config is imported.
 ensure_brain()

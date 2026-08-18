@@ -11,18 +11,13 @@ had to be made twice or the two writers would disagree about a file they
 jointly own. That layer lives here instead; each auth module keeps only its
 own OAuth flow.
 
-STUDY GUIDE
------------
-* One module owns the file format; provider modules own their OAuth flows.
-* ``AuthStoreError`` is the shared base — ``CodexAuthError`` and
-  ``GitHubAuthError`` subclass it, so ``except AuthStoreError`` catches
-  storage failures from either provider.
-* Key concepts: single source of truth, exception hierarchies, atomic
-  write-then-replace.
+``CodexAuthError`` and ``GitHubAuthError`` subclass ``AuthStoreError``, so
+storage failures from either provider can be caught in one place.
 """
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,20 +26,15 @@ import config
 
 AUTH_FILE_NAME = "auth.json"
 
-
 class AuthStoreError(RuntimeError):
     """Raised when Kara's shared auth store is unreadable or malformed."""
-
-
 def auth_file() -> Path:
     """Return Kara's private auth store path under the gitignored brain directory."""
     return config.BRAIN_DIR / AUTH_FILE_NAME
 
-
 def now_iso() -> str:
     """Return the current UTC time as an ISO-8601 ``...Z`` string."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
 
 def load_store() -> dict[str, Any]:
     """Read the whole auth store, returning an empty one if it doesn't exist yet."""
@@ -61,21 +51,22 @@ def load_store() -> dict[str, Any]:
     data.setdefault("providers", {})
     return data
 
-
 def save_store(data: dict[str, Any]) -> None:
     """Write the whole auth store atomically (write to .tmp, then replace)."""
     config.ensure_brain()
     path = auth_file()
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    if os.name == "posix":
+        tmp.chmod(0o600)
     tmp.replace(path)
-
+    if os.name == "posix":
+        path.chmod(0o600)
 
 def read_provider(provider_id: str) -> dict[str, Any] | None:
     """Return one provider's stored entry, or None when it isn't logged in."""
     state = load_store().get("providers", {}).get(provider_id)
     return state if isinstance(state, dict) else None
-
 
 def write_provider(provider_id: str, entry: dict[str, Any]) -> None:
     """Merge one provider's entry into the store, leaving other providers intact."""

@@ -4,17 +4,11 @@ Thin wrappers around ``memory_store`` and ``vector_index`` that Kara calls to
 manage their own brain: edit core memory, save durable learnings, and search their
 learnings + sessions semantically (the MemGPT / Letta pattern).
 
-STUDY GUIDE
------------
-* Exposes memory operations as plain Python functions the LLM invokes as tools.
-* Validates section names and formats human-readable confirmation strings.
-* Key concepts: docstrings for tool schema generation, input validation, string formatting.
 """
 from memory import store as memory_store
 from memory import vector_index
 
 VALID_SECTIONS = memory_store.VALID_SECTIONS
-
 
 def core_memory_append(section: str, content: str) -> str:
     """
@@ -40,7 +34,6 @@ def core_memory_append(section: str, content: str) -> str:
     memory_store.set_core_section(section, updated)
     return f"Core memory updated. '{section}' is now:\n{updated}"
 
-
 def core_memory_replace(section: str, old_content: str, new_content: str) -> str:
     """
     Replace text within one of your core memory sections. Use this to correct or update a stored fact. Persists across sessions.
@@ -64,7 +57,6 @@ def core_memory_replace(section: str, old_content: str, new_content: str) -> str
     memory_store.set_core_section(section, updated)
     return f"Core memory updated. '{section}' is now:\n{updated}"
 
-
 def set_active_task(task: str) -> str:
     """
     Set the task you're currently helping the user with. Persists across sessions. Pass an empty string or 'None' to clear it.
@@ -79,7 +71,6 @@ def set_active_task(task: str) -> str:
     memory_store.set_core_section("active_task", value)
     return f"Active task set to: {value}"
 
-
 def save_learning(title: str, content: str) -> str:
     """
     Save a durable learning or insight to long-term memory as its own note. Use this for facts worth remembering beyond core memory (preferences, decisions, project details). Searchable later via search_memory.
@@ -93,7 +84,6 @@ def save_learning(title: str, content: str) -> str:
     """
     path = memory_store.save_learning(title, content)
     return f"Saved learning to brain/learnings/{path.name}."
-
 
 def search_memory(query: str, top_k: int = 5) -> str:
     """

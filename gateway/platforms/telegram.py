@@ -1,10 +1,5 @@
 """Telegram platform adapter for the Kara gateway.
 
-STUDY GUIDE
------------
-* Registers Telegram command and message handlers with python-telegram-bot.
-* Enforces user allow-list, splits long replies, shows typing indicator.
-* Key concepts: ``async def`` handlers, ``asyncio.to_thread``, ``filters``, handler registration.
 """
 from __future__ import annotations
 
@@ -37,13 +32,11 @@ TELEGRAM_MAX_MESSAGE = 4096
 # on an interval shorter than that expiry for as long as Kara is working.
 TYPING_REFRESH_SECONDS = 4
 
-
 def _is_allowed(user_id: int | None) -> bool:
     if user_id is None:
         return False
     allowed = config.telegram_allowed_user_ids()
     return bool(allowed) and user_id in allowed
-
 
 def _split_message(text: str, limit: int = TELEGRAM_MAX_MESSAGE) -> list[str]:
     if len(text) <= limit:
@@ -54,13 +47,11 @@ def _split_message(text: str, limit: int = TELEGRAM_MAX_MESSAGE) -> list[str]:
         text = text[limit:]
     return chunks
 
-
 async def _reply(update: Update, text: str) -> None:
     if not update.message:
         return
     for chunk in _split_message(text):
         await update.message.reply_text(chunk)
-
 
 async def _reply_rich(update: Update, text: str) -> None:
     """Send Kara's reply as Telegram HTML, converting from the model's Markdown.
@@ -78,11 +69,9 @@ async def _reply_rich(update: Update, text: str) -> None:
             log.warning("HTML reply rejected (%s); sending plain text", e)
             await update.message.reply_text(chunk)
 
-
 # LEARN: Handlers below split into a sync helper (blocking work: HTTP, SQLite,
 # LLM calls) and an async wrapper that runs it via asyncio.to_thread. This keeps
 # the event loop free so the bot can keep receiving updates while one is busy.
-
 
 async def _typing_refresh_loop(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
     while True:
@@ -92,7 +81,6 @@ async def _typing_refresh_loop(context: ContextTypes.DEFAULT_TYPE, chat_id: int)
             # LEARN: A dropped typing ping shouldn't kill the loop or the reply.
             log.debug("send_chat_action failed; will retry on next tick", exc_info=True)
         await asyncio.sleep(TYPING_REFRESH_SECONDS)
-
 
 @contextlib.asynccontextmanager
 async def _typing_indicator(context: ContextTypes.DEFAULT_TYPE, chat_id: int | None):
@@ -112,7 +100,6 @@ async def _typing_indicator(context: ContextTypes.DEFAULT_TYPE, chat_id: int | N
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
-
 def _start_reply(user_id: int) -> str:
     key = session_db.build_session_key("telegram", user_id)
     session = gw_sessions.get_session(key, channel="telegram")
@@ -127,14 +114,12 @@ def _start_reply(user_id: int) -> str:
         "          /new  /stop  /usage  /context  /restart"
     )
 
-
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not _is_allowed(user.id):
         await _reply(update, "Unauthorized.")
         return
     await _reply(update, await asyncio.to_thread(_start_reply, user.id))
-
 
 async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -147,7 +132,6 @@ async def models_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         reply = await asyncio.to_thread(models.format_models_list)
     await _reply(update, reply)
 
-
 async def providers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not _is_allowed(user.id):
@@ -158,12 +142,10 @@ async def providers_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     cmd = "/provider" if not context.args else f"/provider {' '.join(context.args)}"
     await _reply(update, await asyncio.to_thread(gw_commands.handle_command, session, cmd) or "")
 
-
 def _model_reply(user_id: int, cmd: str) -> str:
     key = session_db.build_session_key("telegram", user_id)
     session = gw_sessions.get_session(key)
     return gw_commands.handle_command(session, cmd) or ""
-
 
 async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -173,12 +155,10 @@ async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cmd = "/model" if not context.args else f"/model {' '.join(context.args)}"
     await _reply(update, await asyncio.to_thread(_model_reply, user.id, cmd))
 
-
 def _new_session_reply(user_id: int) -> str:
     key = session_db.build_session_key("telegram", user_id)
     session = gw_sessions.new_session(key)
     return f"New session started. Model: {session.model_name}"
-
 
 async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -191,14 +171,12 @@ async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply = await asyncio.to_thread(_new_session_reply, user.id)
     await _reply(update, reply)
 
-
 def _restart_reply(user_id: int, chat_id: int | None) -> str:
     key = session_db.build_session_key("telegram", user_id)
     session = gw_sessions.get_session(key)
     if chat_id is not None:
         gw_restart.queue_restart_notification(chat_id)
     return gw_commands.handle_command(session, "/restart") or "Restarting..."
-
 
 async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -211,7 +189,6 @@ async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await asyncio.to_thread(_restart_reply, user.id, chat.id if chat else None),
     )
 
-
 async def auth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not _is_allowed(user.id):
@@ -222,7 +199,6 @@ async def auth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     session = gw_sessions.get_session(key, channel="telegram")
     await _reply(update, gw_commands.handle_command(session, cmd) or "")
 
-
 async def codex_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not _is_allowed(user.id):
@@ -232,10 +208,8 @@ async def codex_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     session = gw_sessions.get_session(key, channel="telegram")
     await _reply(update, gw_commands.handle_command(session, "/codex-status") or "")
 
-
 def plain_cmd(command: str):
     """Build a handler that runs a shared slash command and replies with its text."""
-
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not user or not _is_allowed(user.id):
@@ -247,7 +221,6 @@ def plain_cmd(command: str):
         await _reply(update, reply or "")
 
     return handler
-
 
 async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cancel a turn that is already running.
@@ -264,7 +237,6 @@ async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _reply(update, "Stopping — I'll wrap up at the next safe point.")
     else:
         await _reply(update, "Nothing is running.")
-
 
 def _chat_reply(user_id: int, chat_id: int | None, text: str) -> tuple[str, bool]:
     # LEARN: Returns (reply, is_rich). Slash commands are plain, terse output;
@@ -286,7 +258,6 @@ def _chat_reply(user_id: int, chat_id: int | None, text: str) -> tuple[str, bool
     finally:
         if token is not None:
             reset_scheduler_request_context(token)
-
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -326,7 +297,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _reply(update, f"Error: {e}")
     finally:
         lock.release()
-
 
 def register_handlers(app: Application) -> None:
     # LEARN: Handlers match update types — CommandHandler for /commands, MessageHandler for plain text.

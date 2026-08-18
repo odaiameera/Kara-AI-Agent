@@ -12,14 +12,6 @@ the two well-known SDK functions (remember/recall) this module resolves
 tool names against the server's live `list_tools()` at call time instead of
 hardcoding them, plus exposes a generic escape hatch for everything else the
 server offers (knowledge-graph, multi-agent, working-note, operational tools).
-
-STUDY GUIDE
------------
-* Lazily creates one McpServerBridge on first use — never blocks Kara's
-  startup if `mnemosyne` isn't installed.
-* Fuzzy tool-name resolution instead of hardcoding, since the upstream docs
-  explicitly call the tool inventory version-specific.
-* Key concepts: lazy singleton, JSON argument passthrough, MCP error surfacing.
 """
 from __future__ import annotations
 
@@ -43,10 +35,8 @@ _SECRET_NAME_FRAGMENTS = ("api_key", "apikey", "token", "password", "secret", "c
 
 _bridge: McpServerBridge | None = None
 
-
 def _is_windows() -> bool:
     return sys.platform == "win32"
-
 
 def _venv_bin_candidates(name: str) -> list[Path]:
     # LEARN: sys.prefix reliably points at the active venv no matter how this
@@ -62,7 +52,6 @@ def _venv_bin_candidates(name: str) -> list[Path]:
         return [venv_bin / f"{name}.exe", venv_bin / name]
     return [venv_bin / name]
 
-
 def _resolved_bin() -> str | None:
     configured = Path(MNEMOSYNE_BIN)
     if configured.exists():
@@ -71,7 +60,6 @@ def _resolved_bin() -> str | None:
         if candidate.exists():
             return str(candidate)
     return shutil.which(MNEMOSYNE_BIN)
-
 
 def _not_ready_message() -> str:
     if _resolved_bin() is None:
@@ -84,7 +72,6 @@ def _not_ready_message() -> str:
         )
     return ""
 
-
 def _subprocess_environment() -> dict[str, str]:
     """Copy the environment minus Kara's own secrets, keeping MNEMOSYNE_* intact."""
     return {
@@ -94,7 +81,6 @@ def _subprocess_environment() -> dict[str, str]:
         or not any(fragment in key.casefold() for fragment in _SECRET_NAME_FRAGMENTS)
     }
 
-
 def _get_bridge() -> McpServerBridge:
     global _bridge
     if _bridge is None:
@@ -102,7 +88,6 @@ def _get_bridge() -> McpServerBridge:
             _resolved_bin() or MNEMOSYNE_BIN, ["mcp"], env=_subprocess_environment()
         )
     return _bridge
-
 
 def _resolve_tool(*candidates: str) -> dict[str, Any]:
     """Find the live MCP tool (name + input schema) matching one of the given
@@ -134,7 +119,6 @@ def _resolve_tool(*candidates: str) -> dict[str, Any]:
         f"Mnemosyne MCP server. Available tools: {', '.join(by_name) or '(none)'}"
     )
 
-
 def _primary_text_field(schema: dict[str, Any] | None, properties: dict[str, Any]) -> str:
     """Pick the schema property that should carry the main text payload.
 
@@ -149,7 +133,6 @@ def _primary_text_field(schema: dict[str, Any] | None, properties: dict[str, Any
         if (properties.get(name) or {}).get("type") == "string":
             return name
     return "content"
-
 
 def mnemosyne_status() -> str:
     """
@@ -175,7 +158,6 @@ def mnemosyne_status() -> str:
         )
     except McpBridgeError as exc:
         return f"Error connecting to Mnemosyne MCP server: {exc}"
-
 
 def mnemosyne_remember(text: str, tags: str = "") -> str:
     """
@@ -210,7 +192,6 @@ def mnemosyne_remember(text: str, tags: str = "") -> str:
     except McpBridgeError as exc:
         return f"Error storing memory in Mnemosyne: {exc}"
 
-
 def mnemosyne_recall(query: str, limit: int = 10) -> str:
     """
     Search Mnemosyne, a separate long-term memory system reached over MCP, for relevant memories.
@@ -235,7 +216,6 @@ def mnemosyne_recall(query: str, limit: int = 10) -> str:
         return extract_text(result)
     except McpBridgeError as exc:
         return f"Error recalling from Mnemosyne: {exc}"
-
 
 def mnemosyne_call_tool(tool_name: str, arguments_json: str = "{}") -> str:
     """

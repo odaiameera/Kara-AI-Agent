@@ -11,11 +11,6 @@ learnings + sessions lives in ``vector_index.py``.
 A one-time migration pulls any legacy ``memory/core_memory.json`` into the new
 markdown core files so nothing is lost from the previous version.
 
-STUDY GUIDE
------------
-* Reads/writes markdown files for core memory, learnings, and session logs.
-* Migrates old JSON core memory to markdown on first run.
-* Key concepts: Path I/O, ``with open`` append mode, regex slugify, graceful try/except.
 """
 import json
 import re
@@ -37,7 +32,6 @@ def default_human() -> str:
         opening = f"The user is {config.USER_NAME}."
     return f"{opening} They take notes, track projects, and park ideas."
 
-
 def _default_persona_base() -> str:
     # "the user's" and "Ada's" both read correctly, so no special case needed.
     return (
@@ -47,7 +41,6 @@ def _default_persona_base() -> str:
         "You operate via a CLI and manage your own memory."
     )
 
-
 def _read(path: Path) -> str:
     # LEARN: try/except on file read returns "" if missing — callers don't need to check exists().
     try:
@@ -55,23 +48,19 @@ def _read(path: Path) -> str:
     except Exception:
         return ""
 
-
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-
 
 def _slugify(text: str) -> str:
     # LEARN: re.sub replaces non-alphanumeric runs with hyphens for safe filenames.
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return slug[:60] or "note"
 
-
 def _default_persona() -> str:
     seed = _read(config.IDENTITY_SEED)
     base = _default_persona_base()
     return f"{seed}\n\n{base}" if seed else base
-
 
 def _migrate_legacy_core() -> None:
     """Import legacy memory/core_memory.json into markdown core files, once."""
@@ -88,7 +77,6 @@ def _migrate_legacy_core() -> None:
         value = str(data.get(section, "")).strip()
         if value:
             _write(config.CORE_FILES[section], value)
-
 
 def init_core_memory() -> None:
     """Seed any missing core memory files with sensible defaults."""
@@ -107,14 +95,11 @@ def init_core_memory() -> None:
         if not path.exists():
             _write(path, defaults[section])
 
-
 def get_core_section(section: str) -> str:
     return _read(config.CORE_FILES[section])
 
-
 def set_core_section(section: str, content: str) -> None:
     _write(config.CORE_FILES[section], content.strip())
-
 
 def render_core_memory() -> str:
     """Render the core block injected into the system prompt every turn."""
@@ -127,7 +112,6 @@ def render_core_memory() -> str:
         f"HUMAN CONTEXT:\n{human}\n\n"
         f"CURRENT ACTIVE TASK:\n{task}"
     )
-
 
 def save_learning(title: str, content: str) -> Path:
     """Write a durable learning as its own timestamped markdown file."""
@@ -148,15 +132,12 @@ def save_learning(title: str, content: str) -> Path:
     _write(path, body)
     return path
 
-
 _SUMMARY_HEADING = re.compile(r"^##\s+Summary\s*$", re.MULTILINE)
-
 
 def _extract_legacy_summary(text: str) -> str:
     """Pull the ``## Summary`` block out of a pre-migration session log."""
     match = _SUMMARY_HEADING.search(text)
     return text[match.end():].strip() if match else ""
-
 
 def migrate_legacy_session_logs() -> int:
     """Import summaries from old ``brain/sessions/*.md`` logs into SQLite, once.

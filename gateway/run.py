@@ -1,10 +1,5 @@
 """Kara gateway — single long-lived process (Hermes-style).
 
-STUDY GUIDE
------------
-* Starts the Telegram bot and runs until stopped or restarted.
-* Sets up rotating file + console logging and a background restart monitor.
-* Key concepts: ``asyncio``, ``async def``, ``Application.builder()``, callback hooks.
 """
 from __future__ import annotations
 
@@ -28,7 +23,6 @@ from gateway import sessions as gw_sessions
 from gateway.platforms import telegram as telegram_adapter
 
 log = logging.getLogger("kara.gateway")
-
 
 def _setup_logging() -> None:
     config.ensure_brain()
@@ -63,7 +57,6 @@ def _setup_logging() -> None:
         file_handler.setFormatter(fmt)
         root.addHandler(file_handler)
 
-
 def _warn_on_context_budget() -> None:
     """Surface a context window too small to hold Kara's own prompt."""
     import kara
@@ -75,10 +68,8 @@ def _warn_on_context_budget() -> None:
     if warning:
         log.warning("%s", warning)
 
-
 def _refresh_fingerprint() -> None:
     gw_restart.save_fingerprint(gw_restart.compute_code_fingerprint())
-
 
 async def _restart_monitor(app: Application) -> None:
     # LEARN: async def + await asyncio.sleep — cooperative polling without blocking the event loop.
@@ -113,13 +104,11 @@ async def _restart_monitor(app: Application) -> None:
         # on Windows — post_shutdown never runs and no replacement starts. Hard-exit instead.
         os._exit(0)
 
-
 async def _post_init(app: Application) -> None:
     # LEARN: create_task schedules a coroutine to run concurrently in the background.
     asyncio.create_task(_restart_monitor(app))
     asyncio.create_task(_send_online_notifications(app))
     asyncio.create_task(scheduled_runner.scheduler_loop(app.bot))
-
 
 async def _send_online_notifications(app: Application) -> None:
     """Ping Telegram chats that requested a restart once polling is live."""
@@ -135,14 +124,12 @@ async def _send_online_notifications(app: Application) -> None:
         except Exception as e:
             log.warning("Failed to send online notification to %s: %s", chat_id, e)
 
-
 async def _post_shutdown(_app: Application) -> None:
     gw_sessions.shutdown_all()
     gw_restart.release_restart_leadership()
     gw_restart.release_instance_lock()
     gw_restart.clear_pid()
     log.info("Gateway stopped.")
-
 
 def validate_config() -> None:
     if not config.TELEGRAM_BOT_TOKEN:
@@ -151,7 +138,6 @@ def validate_config() -> None:
         raise SystemExit(
             "Set TELEGRAM_ALLOWED_USER_IDS in .env (message @userinfobot for your id)."
         )
-
 
 def main() -> None:
     _setup_logging()
@@ -198,7 +184,6 @@ def main() -> None:
 
     log.info("Telegram adapter online — polling")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
 
 if __name__ == "__main__":
     main()

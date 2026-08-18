@@ -1,10 +1,5 @@
 """Web search (SearXNG) and web fetch tools.
 
-STUDY GUIDE
------------
-* ``web_search`` queries SearXNG (JSON or HTML fallback); ``web_fetch`` extracts page text.
-* Custom HTMLParser subclass strips tags without third-party libraries.
-* Key concepts: class inheritance, ``HTMLParser``, shared HTTP client, regex parsing, urlparse.
 """
 from __future__ import annotations
 
@@ -32,10 +27,8 @@ DUCKDUCKGO_HTML_URL = os.getenv(
     "WEB_SEARCH_SECONDARY_FALLBACK_URL", "https://html.duckduckgo.com/html/"
 ).strip()
 
-
 class _TextExtractor(HTMLParser):
     """Minimal HTML-to-text extractor (stdlib only)."""
-
     SKIP_TAGS = {"script", "style", "noscript", "svg", "head"}
 
     def __init__(self) -> None:
@@ -66,7 +59,6 @@ class _TextExtractor(HTMLParser):
         raw = re.sub(r"\n{3,}", "\n\n", raw)
         return raw.strip()
 
-
 def _validate_url(url: str) -> str:
     # LEARN: urlparse splits a URL into scheme, netloc, path — we reject non-http(s) schemes.
     parsed = urlparse(url.strip())
@@ -74,18 +66,15 @@ def _validate_url(url: str) -> str:
         raise ValueError(f"Invalid URL (http/https only): {url}")
     return url.strip()
 
-
 def _truncate(text: str, limit: int = MAX_FETCH_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n\n... (truncated, {len(text) - limit} more chars)"
 
-
 def _strip_html(text: str) -> str:
     clean = re.sub(r"<[^>]+>", " ", text)
     clean = re.sub(r"\s+", " ", clean).strip()
     return re.sub(r"\s+([.,;:!?])", r"\1", clean)
-
 
 def _is_cloudflare_access_page(html: str) -> bool:
     lower = html.lower()
@@ -94,7 +83,6 @@ def _is_cloudflare_access_page(html: str) -> bool:
         or "cf-access-login" in lower
         or "sign in with" in lower and "cloudflare" in lower
     )
-
 
 def _parse_searxng_html(html: str, max_results: int) -> list[dict[str, str]]:
     """Parse SearXNG HTML results when JSON is unavailable."""
@@ -127,7 +115,6 @@ def _parse_searxng_html(html: str, max_results: int) -> list[dict[str, str]]:
             break
     return results
 
-
 def _format_search_results(
     query: str, results: list[dict], *, via: str = "json"
 ) -> str:
@@ -151,7 +138,6 @@ def _format_search_results(
         lines.append(f"{i}. {title}\n   URL: {link}\n   {snippet}")
     return "\n\n".join(lines)
 
-
 def _duckduckgo_result_url(raw_url: str) -> str:
     """Resolve DuckDuckGo redirect links to their external destination."""
     value = unescape(raw_url.strip())
@@ -166,7 +152,6 @@ def _duckduckgo_result_url(raw_url: str) -> str:
             value = unquote(destination)
     parsed = urlparse(value)
     return value if parsed.scheme in {"http", "https"} and parsed.netloc else ""
-
 
 def _parse_duckduckgo_html(html: str, max_results: int) -> list[dict[str, str]]:
     """Parse the stable no-JavaScript DuckDuckGo HTML result surface."""
@@ -195,7 +180,6 @@ def _parse_duckduckgo_html(html: str, max_results: int) -> list[dict[str, str]]:
             break
     return results
 
-
 def _duckduckgo_search(query: str, max_results: int) -> str | None:
     """Best-effort public fallback when the configured SearXNG is unavailable."""
     if not DUCKDUCKGO_HTML_URL:
@@ -211,7 +195,6 @@ def _duckduckgo_search(query: str, max_results: int) -> str | None:
     except (httpx.HTTPError, ValueError):
         return None
     return _format_search_results(query, results, via="duckduckgo") if results else None
-
 
 def _parse_brave_html(html: str, max_results: int) -> list[dict[str, str]]:
     """Parse Brave Search's server-rendered web result cards."""
@@ -250,7 +233,6 @@ def _parse_brave_html(html: str, max_results: int) -> list[dict[str, str]]:
             break
     return results
 
-
 def _brave_search(query: str, max_results: int) -> str | None:
     if not BRAVE_SEARCH_URL:
         return None
@@ -266,11 +248,9 @@ def _brave_search(query: str, max_results: int) -> str | None:
         return None
     return _format_search_results(query, results, via="brave") if results else None
 
-
 def _fallback_search(query: str, max_results: int) -> str | None:
     """Try public HTML providers without requiring an API key."""
     return _brave_search(query, max_results) or _duckduckgo_search(query, max_results)
-
 
 def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
     """
@@ -382,7 +362,6 @@ def web_search(query: str, max_results: int = MAX_SEARCH_RESULTS) -> str:
         if fallback:
             return fallback
         return f"Could not reach SearXNG at {SEARXNG_URL}: {e}"
-
 
 def web_fetch(url: str, max_chars: int = MAX_FETCH_CHARS) -> str:
     """

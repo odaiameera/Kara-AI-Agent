@@ -1,10 +1,5 @@
 """Active model/provider selection and ``/models`` formatting.
 
-STUDY GUIDE
------------
-* Reads/writes ``brain/settings.json`` for the user's chosen provider and model.
-* Formats human-readable lists for /models and /model slash commands.
-* Key concepts: JSON persistence, fallback defaults, string building with list joins.
 """
 from __future__ import annotations
 
@@ -24,7 +19,6 @@ PROVIDER_DEFAULT_MODELS = {
     "ollama": DEFAULT_MODEL,
 }
 
-
 def _load_settings() -> dict:
     # LEARN: try/except on read — corrupt JSON falls back to empty dict instead of crashing.
     if SETTINGS_FILE.exists():
@@ -34,11 +28,9 @@ def _load_settings() -> dict:
             pass
     return {}
 
-
 def _save_settings(data: dict) -> None:
     config.ensure_brain()
     SETTINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
 
 def get_active_provider_id() -> str:
     saved = _load_settings().get("provider_id", "").strip()
@@ -50,10 +42,8 @@ def get_active_provider_id() -> str:
             return p.id
     return DEFAULT_PROVIDER_ID
 
-
 def get_current_model() -> str:
     return _load_settings().get("model", "").strip() or DEFAULT_MODEL
-
 
 def get_active_provider() -> ChatProvider:
     provider = providers.get_chat_provider(get_active_provider_id())
@@ -63,7 +53,6 @@ def get_active_provider() -> ChatProvider:
             raise RuntimeError("No providers configured. Check brain/providers.json and .env")
         provider = all_p[0]
     return provider
-
 
 def set_active(provider_id: str, model: str) -> None:
     provider_id = provider_id.strip()
@@ -76,7 +65,6 @@ def set_active(provider_id: str, model: str) -> None:
     data["provider_id"] = provider_id
     data["model"] = model
     _save_settings(data)
-
 
 def default_model_for_provider(provider_id: str) -> str:
     """Return Kara's safe default model for a provider id/type."""
@@ -92,14 +80,12 @@ def default_model_for_provider(provider_id: str) -> str:
         or DEFAULT_MODEL
     )
 
-
 def select_provider(provider_id: str, model: str | None = None) -> tuple[str, str]:
     """Persist a provider switch and return ``(provider_id, model)``."""
     provider_id = provider_id.strip()
     chosen_model = (model or "").strip() or default_model_for_provider(provider_id)
     set_active(provider_id, chosen_model)
     return provider_id, chosen_model
-
 
 def parse_model_target(target: str, *, current_provider_id: str) -> tuple[str, str]:
     """Parse ``/model`` targets.
@@ -123,7 +109,6 @@ def parse_model_target(target: str, *, current_provider_id: str) -> tuple[str, s
     if providers.get_provider(current_provider_id) is None:
         raise ValueError(f"Unknown active provider '{current_provider_id}'.")
     return current_provider_id, target
-
 
 def format_providers_list() -> str:
     """Format output for native provider switching commands."""
@@ -149,7 +134,6 @@ def format_providers_list() -> str:
         lines.append(f"  model switch: /model {p.id}/{default_model_for_provider(p.id)}")
     lines.append(f"\nActive: {active_provider_id} / {active_model}")
     return "\n".join(lines)
-
 
 def format_models_list() -> str:
     """Format output for the ``/models`` command — all providers + their models."""
@@ -183,7 +167,6 @@ def format_models_list() -> str:
     lines.append("\nSwitch provider: /provider <provider-id>")
     lines.append("Switch provider+model: /model <provider-id>/<model-name>")
     return "\n".join(lines)
-
 
 def format_model_list() -> str:
     """Models for the *active* provider only (legacy ``/model`` without args)."""
