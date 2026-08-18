@@ -1,10 +1,5 @@
 """OpenAI Codex OAuth for Kara (ChatGPT-backed device-code flow).
 
-STUDY GUIDE
------------
-* Runs the OpenAI Codex device-code login flow and stores tokens in ``brain/auth.json``.
-* Refreshes access tokens with the saved refresh token before provider calls.
-* Key concepts: OAuth device flow, JSON token storage, JWT expiry checks, small CLI entry points.
 """
 from __future__ import annotations
 
@@ -31,11 +26,8 @@ CODEX_REDIRECT_URI = f"{CODEX_ISSUER}/deviceauth/callback"
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 REFRESH_SKEW_SECONDS = 120
 
-
 class CodexAuthError(auth_store.AuthStoreError):
     """Raised when OpenAI Codex OAuth state is missing or invalid."""
-
-
 def save_tokens(tokens: dict[str, str], *, base_url: str = DEFAULT_CODEX_BASE_URL) -> None:
     """Persist OpenAI Codex OAuth tokens to ``brain/auth.json``.
 
@@ -60,7 +52,6 @@ def save_tokens(tokens: dict[str, str], *, base_url: str = DEFAULT_CODEX_BASE_UR
         },
     )
 
-
 def read_tokens() -> dict[str, Any]:
     """Read stored OpenAI Codex tokens or raise a clear re-login error."""
     state = auth_store.read_provider(CODEX_PROVIDER_ID)
@@ -77,7 +68,6 @@ def read_tokens() -> dict[str, Any]:
         raise CodexAuthError("OpenAI Codex auth state is incomplete; login again.")
     return state
 
-
 def _jwt_exp_epoch(token: str) -> int | None:
     parts = token.split(".")
     if len(parts) < 2:
@@ -91,7 +81,6 @@ def _jwt_exp_epoch(token: str) -> int | None:
     exp = data.get("exp") if isinstance(data, dict) else None
     return int(exp) if isinstance(exp, (int, float)) else None
 
-
 def access_token_is_expiring(token: str, skew_seconds: int = REFRESH_SKEW_SECONDS) -> bool:
     """Return True when a JWT access token is expired or near expiry.
 
@@ -101,7 +90,6 @@ def access_token_is_expiring(token: str, skew_seconds: int = REFRESH_SKEW_SECOND
     if exp is None:
         return False
     return exp <= int(time.time()) + int(skew_seconds)
-
 
 def refresh_tokens() -> dict[str, str]:
     """Refresh and persist the OpenAI Codex access token."""
@@ -130,7 +118,6 @@ def refresh_tokens() -> dict[str, str]:
     save_tokens(updated, base_url=str(state.get("base_url") or DEFAULT_CODEX_BASE_URL))
     return updated
 
-
 def runtime_credentials(*, refresh_if_expiring: bool = True) -> dict[str, str]:
     """Return a fresh bearer token + Codex backend URL for provider calls."""
     state = read_tokens()
@@ -144,7 +131,6 @@ def runtime_credentials(*, refresh_if_expiring: bool = True) -> dict[str, str]:
         "base_url": str(state.get("base_url") or DEFAULT_CODEX_BASE_URL).rstrip("/"),
     }
 
-
 def has_credentials() -> bool:
     # LEARN: catch the shared base — a corrupt auth.json raises AuthStoreError
     # from auth_store, which is NOT a CodexAuthError.
@@ -153,7 +139,6 @@ def has_credentials() -> bool:
         return True
     except auth_store.AuthStoreError:
         return False
-
 
 def device_login(*, print_fn: Callable[[str], None] = print) -> dict[str, Any]:
     """Run OpenAI's Codex device-code login flow and return token payload.
@@ -234,7 +219,6 @@ def device_login(*, print_fn: Callable[[str], None] = print) -> dict[str, Any]:
             "auth_mode": "chatgpt",
         }
 
-
 def login() -> None:
     creds = device_login()
     save_tokens(creds["tokens"], base_url=creds.get("base_url", DEFAULT_CODEX_BASE_URL))
@@ -242,7 +226,6 @@ def login() -> None:
     print("OpenAI Codex login saved for Kara.")
     print(f"Auth state: {auth_file()}")
     print("Next: use `/models` to see OpenAI Codex, or `/provider openai-codex gpt-5.6-terra` to use it.")
-
 
 def status() -> None:
     try:
@@ -260,7 +243,6 @@ def status() -> None:
     print(f"Auth state: {auth_file()}")
     print(f"Access token expiry: {exp_text}")
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage Kara's OpenAI Codex OAuth login")
     parser.add_argument("command", choices=["login", "status", "refresh"])
@@ -272,7 +254,6 @@ def main() -> None:
     elif args.command == "refresh":
         refresh_tokens()
         print("OpenAI Codex token refreshed.")
-
 
 if __name__ == "__main__":
     main()

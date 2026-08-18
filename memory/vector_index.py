@@ -22,11 +22,6 @@ The index is stored at ``brain/index/index.json`` as:
       "chunks": [ {"id", "source", "title", "text", "vector"} ]
     }
 
-STUDY GUIDE
------------
-* Chunks memory records, embeds them via Ollama, stores vectors in JSON on disk.
-* Hybrid search combines cosine similarity with keyword overlap scoring.
-* Key concepts: hashlib, dataclasses, zip(), lambda sort keys, incremental updates.
 """
 from __future__ import annotations
 
@@ -52,15 +47,12 @@ CHUNK_OVERLAP = 150
 _index_cache: dict | None = None
 _index_cache_key: tuple | None = None
 
-
 @dataclass(frozen=True)
 class MemoryRecord:
     """One indexable unit of memory, whatever it was stored in."""
-
     key: str  # stable identity, e.g. "learnings/2026-01-01-foo.md" or "summary:12"
     title: str
     text: str
-
 
 def _memory_fingerprint() -> tuple:
     """Cheap change detector across both sources.
@@ -82,7 +74,6 @@ def _memory_fingerprint() -> tuple:
         pass
     return tuple(entries)
 
-
 def _load_index() -> dict:
     if config.INDEX_FILE.exists():
         try:
@@ -90,7 +81,6 @@ def _load_index() -> dict:
         except Exception:
             pass
     return _empty_index()
-
 
 def _empty_index() -> dict:
     return {
@@ -100,17 +90,14 @@ def _empty_index() -> dict:
         "chunks": [],
     }
 
-
 def _save_index(index: dict) -> None:
     config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
     config.INDEX_FILE.write_text(
         json.dumps(index, ensure_ascii=False), encoding="utf-8"
     )
 
-
 def _learning_key(path) -> str:
     return f"learnings/{path.name}"
-
 
 def _sources() -> list[MemoryRecord]:
     """Every record that participates in semantic memory."""
@@ -140,11 +127,9 @@ def _sources() -> list[MemoryRecord]:
 
     return records
 
-
 def _hash(text: str) -> str:
     # LEARN: SHA-256 hex digest detects file content changes without re-reading old hash files.
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
 
 def _chunk(text: str) -> list[str]:
     text = text.strip()
@@ -161,13 +146,11 @@ def _chunk(text: str) -> list[str]:
         start = end - CHUNK_OVERLAP
     return chunks
 
-
 def _title_of(text: str, fallback: str) -> str:
     for line in text.splitlines():
         if line.startswith("# "):
             return line[2:].strip()
     return fallback
-
 
 def _cosine(a: list[float], b: list[float]) -> float:
     # LEARN: zip() pairs elements from two lists; generator expressions inside sum() compute dot product.
@@ -178,9 +161,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
         return 0.0
     return dot / (na * nb)
 
-
 _WORD_RE = re.compile(r"[a-z0-9]+")
-
 
 def _keyword_score(query: str, text: str) -> float:
     # LEARN: Sets of words enable fast intersection (q & t) for keyword overlap ratio.
@@ -189,7 +170,6 @@ def _keyword_score(query: str, text: str) -> float:
         return 0.0
     t = set(_WORD_RE.findall(text.lower()))
     return len(q & t) / len(q)
-
 
 def reindex() -> dict:
     """Bring the index up to date, re-embedding only changed/new records.
@@ -256,12 +236,10 @@ def reindex() -> dict:
         "chunks": len(chunks),
     }
 
-
 def _cache_index(index: dict) -> None:
     global _index_cache, _index_cache_key
     _index_cache = index
     _index_cache_key = _memory_fingerprint()
-
 
 def _keyword_only_search(query: str, top_k: int) -> list[dict]:
     results = []
@@ -279,7 +257,6 @@ def _keyword_only_search(query: str, top_k: int) -> list[dict]:
     # LEARN: sort(key=lambda ...) orders by score descending; lambda is an inline anonymous function.
     results.sort(key=lambda r: r["score"], reverse=True)
     return results[:top_k]
-
 
 def search(query: str, top_k: int = 5, semantic_weight: float = 0.7) -> dict:
     """Hybrid search over learnings + sessions.

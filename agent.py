@@ -1,11 +1,5 @@
 """CLI entry point for Kara.
 
-STUDY GUIDE
------------
-* Interactive command-line chat loop — read input, send to Kara, print replies.
-* Delegates slash commands (/models, /new, etc.) to shared gateway command handlers.
-* Wires a tool-call callback so you see when Kara uses memory or web tools.
-* Key concepts: ``while True`` loops, ``input()``, nested functions, ``if __name__ == "__main__"``.
 """
 from memory import embeddings
 import config
@@ -15,7 +9,6 @@ from kara import KaraSession, get_system_instruction
 from tools import registry
 
 CLI_SESSION_KEY = "kara:cli:local"
-
 
 def main():
     # LEARN: KaraSession wraps the LLM + SQLite history; RuntimeError means missing API key or Ollama down.
@@ -78,7 +71,6 @@ def main():
             break
         except Exception as e:
             print(f"\n[!] Unexpected Error: {e}")
-
 
 # LEARN: This guard runs main() only when you execute ``python agent.py`` directly, not when imported.
 if __name__ == "__main__":

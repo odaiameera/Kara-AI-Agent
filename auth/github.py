@@ -1,11 +1,4 @@
 """GitHub OAuth for Kara (OAuth App device-code flow, not a fine-grained token).
-
-STUDY GUIDE
------------
-* Runs GitHub's OAuth Device Flow and stores tokens in ``brain/auth.json``.
-* Refreshes access tokens when GitHub issues expiring user tokens (optional
-  app setting); classic device-flow tokens have no expiry and are reused as-is.
-* Key concepts: OAuth device flow, JSON token storage, polling with backoff.
 """
 from __future__ import annotations
 
@@ -29,11 +22,8 @@ ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 VERIFY_URL = "https://github.com/login/device"
 REFRESH_SKEW_SECONDS = 120
 
-
 class GitHubAuthError(auth_store.AuthStoreError):
     """Raised when GitHub OAuth state is missing, invalid, or misconfigured."""
-
-
 def _client_id() -> str:
     client_id = os.getenv(GITHUB_CLIENT_ID_ENV, "").strip()
     if not client_id:
@@ -44,10 +34,8 @@ def _client_id() -> str:
         )
     return client_id
 
-
 def _scopes() -> str:
     return os.getenv(GITHUB_SCOPES_ENV, "").strip() or DEFAULT_SCOPES
-
 
 def save_tokens(tokens: dict[str, Any], *, scope: str = "") -> None:
     """Persist GitHub OAuth tokens to ``brain/auth.json``.
@@ -78,7 +66,6 @@ def save_tokens(tokens: dict[str, Any], *, scope: str = "") -> None:
         entry["refresh_token_expires_at"] = now + float(refresh_expires_in)
     auth_store.write_provider(GITHUB_PROVIDER_ID, entry)
 
-
 def read_tokens() -> dict[str, Any]:
     """Read stored GitHub tokens or raise a clear re-login error."""
     state = auth_store.read_provider(GITHUB_PROVIDER_ID)
@@ -91,7 +78,6 @@ def read_tokens() -> dict[str, Any]:
         raise GitHubAuthError("GitHub auth state is incomplete; login again.")
     return state
 
-
 def access_token_is_expiring(state: dict[str, Any], skew_seconds: int = REFRESH_SKEW_SECONDS) -> bool:
     """Only classic-OAuth (non-expiring) tokens are the common case; expiring
     user tokens are an opt-in GitHub App setting, so this is a no-op unless
@@ -100,7 +86,6 @@ def access_token_is_expiring(state: dict[str, Any], skew_seconds: int = REFRESH_
     if not isinstance(expires_at, (int, float)):
         return False
     return float(expires_at) <= time.time() + skew_seconds
-
 
 def refresh_tokens() -> dict[str, str]:
     """Refresh and persist the GitHub access token (only applies to apps with
@@ -136,7 +121,6 @@ def refresh_tokens() -> dict[str, str]:
     updated = read_tokens()
     return dict(updated["tokens"])
 
-
 def runtime_credentials(*, refresh_if_expiring: bool = True) -> dict[str, str]:
     """Return a fresh bearer token for GitHub API/git calls."""
     state = read_tokens()
@@ -148,7 +132,6 @@ def runtime_credentials(*, refresh_if_expiring: bool = True) -> dict[str, str]:
         "access_token": str(tokens.get("access_token", "") or "").strip(),
         "scope": str(state.get("scope", "") or ""),
     }
-
 
 def git_credential_helper(
     operation: str,
@@ -196,7 +179,6 @@ def git_credential_helper(
     print(f"password={token}", file=destination)
     return 0
 
-
 def has_credentials() -> bool:
     # LEARN: catch the shared base — a corrupt auth.json raises AuthStoreError
     # from auth_store, which is NOT a GitHubAuthError.
@@ -205,7 +187,6 @@ def has_credentials() -> bool:
         return True
     except auth_store.AuthStoreError:
         return False
-
 
 def device_login(*, print_fn: Callable[[str], None] = print) -> dict[str, Any]:
     """Run GitHub's OAuth Device Flow and return the token payload.
@@ -270,7 +251,6 @@ def device_login(*, print_fn: Callable[[str], None] = print) -> dict[str, Any]:
             raise GitHubAuthError("GitHub device login timed out.")
         return payload
 
-
 def login() -> None:
     payload = device_login()
     save_tokens(payload)
@@ -278,7 +258,6 @@ def login() -> None:
     print("GitHub login saved for Kara.")
     print(f"Auth state: {auth_file()}")
     print(f"Granted scopes: {payload.get('scope') or _scopes()}")
-
 
 def status() -> None:
     try:
@@ -292,7 +271,6 @@ def status() -> None:
     print(f"Last refresh: {state.get('last_refresh') or 'unknown'}")
     has_refresh = bool(state["tokens"].get("refresh_token"))
     print(f"Refresh token present: {has_refresh} (only set if this OAuth App has expiring tokens enabled)")
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Manage Kara's GitHub OAuth login")
@@ -309,7 +287,6 @@ def main() -> int:
     elif args.command == "credential":
         return git_credential_helper(args.operation or "")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -325,31 +325,39 @@ In the CLI, `exit` or `quit` ends the session and writes its summary.
 
 Switching provider or model resets only the current chat context, not the brain.
 
-## 24/7 Telegram gateway on Windows
+## 24/7 Telegram gateway
 
-Install the Windows logon task:
+Install the login auto-start for this machine:
 
-```powershell
-uv run install_gateway.py
+```shell
+uv run python install_gateway.py
 ```
 
-This creates the `KaraGateway` Scheduled Task and launches the gateway without a console window. For debugging:
+- **Windows:** registers the `KaraGateway` Scheduled Task (hidden, no console).
+- **Linux:** writes a systemd *user* unit with this checkout's paths and runs `systemctl --user enable --now kara-gateway.service`.
+- **macOS:** not implemented yet.
 
-```powershell
-uv run python -m gateway.run
-```
+Uninstall with `uv run python install_gateway.py --uninstall`.
 
-The gateway auto-restarts after source changes, persists conversations in `brain/state.db`, and delivers pending scheduler results after restarts. Regular chat replies render Markdown as Telegram HTML; malformed formatting falls back to plain text. Commands intentionally remain plain text.
-
-### Linux and macOS
-
-There is no auto-start integration yet — `install_gateway.py` exits with "This installer is for Windows only," and everything in `scripts/` is PowerShell, `.cmd`, or VBScript. Run the gateway in the foreground instead:
+For debugging in the foreground:
 
 ```shell
 uv run python -m gateway.run
 ```
 
-The daemon itself is already cross-platform: `gateway/restart.py` handles POSIX process spawning and liveness checks, and only special-cases Windows for the hidden console window. What's missing is the service registration that starts it at login or boot and brings it back if it dies. See [Roadmap](#roadmap).
+The gateway auto-restarts after source changes, persists conversations in `brain/state.db`, and delivers pending scheduler results after restarts. Regular chat replies render Markdown as Telegram HTML; malformed formatting falls back to plain text. Commands intentionally remain plain text.
+
+On Linux, start/stop/restart after install:
+
+```shell
+scripts/start_gateway.sh
+scripts/stop_gateway.sh
+scripts/restart_gateway.sh
+```
+
+Logs stay in `brain/logs/`. systemd also captures stdout: `journalctl --user -u kara-gateway.service -f`.
+
+The unit is generated at install time. Nothing in the repository is machine-specific.
 
 ## Configuration
 
@@ -504,7 +512,7 @@ Useful scripts are in `scripts/`, including gateway install/start/stop helpers a
 |---|---|
 | CLI | `uv run python agent.py` |
 | Telegram gateway | `uv run python -m gateway.run` |
-| Windows logon task | `uv run python install_gateway.py` (`--uninstall` to remove) |
+| Windows / Linux login auto-start | `uv run python install_gateway.py` (`--uninstall` to remove) |
 | Codex device login | `uv run python -m auth.codex login` |
 | GitHub device login | `uv run python -m auth.github login` |
 | Update + restart gateway | `uv run python update.py` |
@@ -515,26 +523,11 @@ Useful scripts are in `scripts/`, including gateway install/start/stop helpers a
 
 ## Roadmap
 
-### Gateway auto-start on macOS and Linux
+### Gateway auto-start on macOS
 
-Running Kara 24/7 is the project's main use case, but only Windows can currently register the gateway to start on its own. Linux and macOS users have to launch it in the foreground and restart it by hand after a reboot.
+Linux now uses a systemd user unit. macOS still needs a launchd LaunchAgent (`~/Library/LaunchAgents/*.plist`) generated at install time — same rule as the Linux unit: fill in the repo path and interpreter, do not commit a machine-specific file.
 
-The daemon does not need to change for this. `gateway/run.py` already runs anywhere, and `gateway/restart.py` already spawns replacements and checks process liveness on POSIX. The gap is purely OS service registration:
-
-| Platform | Mechanism | Status |
-|---|---|---|
-| Windows | Scheduled Task at logon (`install_gateway.ps1`) | done |
-| Linux | **systemd user unit** (`systemctl --user enable --now kara-gateway`) | planned |
-| macOS | **launchd LaunchAgent** (`~/Library/LaunchAgents/*.plist`) | planned |
-
-A user-level service is the right scope on both — it starts at login, has access to the user's `.env` and `brain/`, and needs no root. Planned work:
-
-- Template a systemd unit and a launchd plist, with the repo path and interpreter filled in at install time rather than committed (the same mistake `launch_gateway.vbs` used to make).
-- Make `install_gateway.py` dispatch on `sys.platform` instead of refusing to run, and support `--uninstall` on all three.
-- Give `scripts/` POSIX start/stop/restart equivalents, reusing the existing `brain/gateway.pid` and restart-flag files so `/restart` and `kara-update` behave identically everywhere.
-- Document log locations per platform: `brain/logs/` stays the source of truth, but systemd also captures stdout in the journal.
-
-Interactive use, the CLI, and every tool group already work on all three platforms today — this is only about keeping the gateway alive unattended.
+Interactive use, the CLI, and every tool group already work on all three platforms today. macOS is the remaining unattended-start gap.
 
 ### Other candidates
 
@@ -565,4 +558,4 @@ Everything else is MIT, BSD, or Apache-2.0. These are installed from PyPI on you
 
 ## Status
 
-This is a personal-agent project under active development, published as-is. Expect APIs, tools, and configuration to evolve. Release notes are in [`CHANGELOG.md`](CHANGELOG.md).
+This is a personal agent under active development, published as-is. Expect APIs, tools, and configuration to evolve. Release notes are in [`CHANGELOG.md`](CHANGELOG.md).

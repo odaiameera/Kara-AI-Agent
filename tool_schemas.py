@@ -1,10 +1,5 @@
 """Build Ollama tool JSON schemas from Python functions.
 
-STUDY GUIDE
------------
-* Introspects function signatures and docstrings to produce LLM tool definitions.
-* Maps Python type hints to JSON Schema types (string, integer, array, etc.).
-* Key concepts: ``inspect.signature``, ``get_type_hints``, regex doc parsing, list comprehensions.
 """
 from __future__ import annotations
 
@@ -20,7 +15,6 @@ _TYPE_MAP = {
     bool: "boolean",
 }
 
-
 def _json_type(annotation: Any) -> str:
     if annotation is inspect.Parameter.empty:
         return "string"
@@ -29,7 +23,6 @@ def _json_type(annotation: Any) -> str:
     if origin is list:
         return "array"
     return _TYPE_MAP.get(annotation, "string")
-
 
 def _parse_param_descriptions(doc: str) -> dict[str, str]:
     """Extract Args: section lines like ``query: The search term``."""
@@ -46,7 +39,6 @@ def _parse_param_descriptions(doc: str) -> dict[str, str]:
         name, _, desc = line.partition(":")
         out[name.strip()] = desc.strip()
     return out
-
 
 def function_to_tool(fn) -> dict[str, Any]:
     # LEARN: inspect.signature reads parameter names, defaults, and annotations from source.
@@ -80,7 +72,6 @@ def function_to_tool(fn) -> dict[str, Any]:
             },
         },
     }
-
 
 def build_tools(functions: list) -> list[dict[str, Any]]:
     # LEARN: List comprehension — compact way to transform every function in the list.

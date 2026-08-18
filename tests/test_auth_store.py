@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -55,6 +57,19 @@ class SharedAuthStoreTests(unittest.TestCase):
         with patch.object(config, "BRAIN_DIR", nested):
             auth_store.write_provider("github", {"tokens": {"access_token": "x"}})
             self.assertTrue((nested / "auth.json").exists())
+
+    @unittest.skipUnless(os.name == "posix", "POSIX permission bits")
+    def test_save_store_enforces_owner_read_write_only_despite_umask(self) -> None:
+        previous_umask = os.umask(0)
+        try:
+            auth_store.write_provider("github", {"tokens": {"access_token": "x"}})
+            mode = stat.S_IMODE((self.root / "auth.json").stat().st_mode)
+            self.assertEqual(mode, 0o600)
+            auth_store.write_provider("github", {"tokens": {"access_token": "y"}})
+            mode = stat.S_IMODE((self.root / "auth.json").stat().st_mode)
+            self.assertEqual(mode, 0o600)
+        finally:
+            os.umask(previous_umask)
 
 
 if __name__ == "__main__":

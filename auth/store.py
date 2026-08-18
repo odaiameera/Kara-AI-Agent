@@ -11,18 +11,13 @@ had to be made twice or the two writers would disagree about a file they
 jointly own. That layer lives here instead; each auth module keeps only its
 own OAuth flow.
 
-STUDY GUIDE
------------
-* One module owns the file format; provider modules own their OAuth flows.
-* ``AuthStoreError`` is the shared base — ``CodexAuthError`` and
-  ``GitHubAuthError`` subclass it, so ``except AuthStoreError`` catches
-  storage failures from either provider.
-* Key concepts: single source of truth, exception hierarchies, atomic
-  write-then-replace.
+``CodexAuthError`` and ``GitHubAuthError`` subclass ``AuthStoreError``, so
+storage failures from either provider can be caught in one place.
 """
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -67,15 +62,23 @@ def save_store(data: dict[str, Any]) -> None:
     config.ensure_brain()
     path = auth_file()
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    payload = json.dumps(data, indent=2)
+    if os.name == "posix":
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        os.chmod(tmp, 0o600)
+    else:
+        tmp.write_text(payload, encoding="utf-8")
     tmp.replace(path)
+    if os.name == "posix":
+        os.chmod(path, 0o600)
 
 
 def read_provider(provider_id: str) -> dict[str, Any] | None:
     """Return one provider's stored entry, or None when it isn't logged in."""
     state = load_store().get("providers", {}).get(provider_id)
     return state if isinstance(state, dict) else None
-
 
 def write_provider(provider_id: str, entry: dict[str, Any]) -> None:
     """Merge one provider's entry into the store, leaving other providers intact."""

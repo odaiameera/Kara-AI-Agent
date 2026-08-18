@@ -1,10 +1,5 @@
 """Ollama chat provider — delegates HTTP calls to ollama_client.
 
-STUDY GUIDE
------------
-* ``OllamaProvider`` wraps a ``Provider`` config record and implements ``ChatProvider``.
-* All network I/O stays in ``ollama_client``; this class is a thin adapter.
-* Key concepts: composition, delegation, adapter pattern.
 """
 from __future__ import annotations
 
@@ -15,11 +10,9 @@ from providers import ollama_client
 from providers.base import ChatResult, chat_result_from_ollama
 from providers.registry import Provider
 
-
 @dataclass(frozen=True)
 class OllamaProvider:
     """ChatProvider implementation backed by Ollama's REST API."""
-
     _config: Provider
 
     @property

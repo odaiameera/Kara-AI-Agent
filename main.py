@@ -1,13 +1,7 @@
 """Launcher — CLI, gateway, update, or install.
 
-STUDY GUIDE
------------
-* Single entry point that dispatches to CLI, gateway, update, or install based on argv.
-* Uses lazy imports so only the chosen subcommand's code is loaded.
-* Key concepts: ``sys.argv``, conditional imports, subcommand routing pattern.
 """
 import sys
-
 
 def main():
     # LEARN: sys.argv[0] is the script name; argv[1] is the first user argument (subcommand).
@@ -39,7 +33,6 @@ def main():
         from agent import main as run
 
         run()
-
 
 if __name__ == "__main__":
     main()

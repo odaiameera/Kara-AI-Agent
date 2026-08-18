@@ -4,13 +4,6 @@ Covers repos/files/code search, issues, pull requests, Actions runs, and
 notifications read-only, plus approval-gated write actions (create/comment/
 close issues, open/merge PRs, star) and git clone/pull/push using the OAuth
 token as an ephemeral per-command credential (never written to git config).
-
-STUDY GUIDE
------------
-* Wraps the GitHub REST API with httpx, reusing github_auth's stored token.
-* Write actions and git push reuse computer_tools._approval_gate for the
-  same two-turn "approve TOKEN" pattern as run_python_tests.
-* Key concepts: REST pagination, JSON curation, subprocess + ephemeral auth.
 """
 from __future__ import annotations
 
@@ -45,17 +38,13 @@ _REPO_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 _client: httpx.Client | None = None
 
-
 class GitHubApiError(RuntimeError):
     """Raised for non-2xx GitHub API responses with a human-readable message."""
-
-
 def _client_instance() -> httpx.Client:
     global _client
     if _client is None or _client.is_closed:
         _client = httpx.Client(base_url=API_BASE_URL, timeout=DEFAULT_TIMEOUT)
     return _client
-
 
 def _not_ready_message() -> str:
     if not github_auth.has_credentials():
@@ -66,7 +55,6 @@ def _not_ready_message() -> str:
         )
     return ""
 
-
 def _repo_slug(repo: str) -> str:
     """Validate an 'owner/name' repo reference and return it normalized."""
     repo = repo.strip()
@@ -74,14 +62,12 @@ def _repo_slug(repo: str) -> str:
         raise ValueError(f"repo must look like 'owner/name', got '{repo}'.")
     return repo
 
-
 def _one_of(value: str, allowed: set[str], field: str, default: str) -> str:
     """Normalize a small enum-ish argument, raising on anything unexpected."""
     chosen = value.strip().lower() or default
     if chosen not in allowed:
         raise ValueError(f"{field} must be one of: {', '.join(sorted(allowed))}.")
     return chosen
-
 
 def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
     creds = github_auth.runtime_credentials()
@@ -111,7 +97,6 @@ def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
         raise GitHubApiError(f"GitHub API error {resp.status_code}: {detail or 'unknown error'}")
     return resp
 
-
 def _clamp_limit(limit: int) -> int:
     try:
         value = int(limit)
@@ -119,23 +104,19 @@ def _clamp_limit(limit: int) -> int:
         value = 20
     return max(1, min(value, MAX_LIST_ITEMS))
 
-
 def _truncate(text: str) -> str:
     if len(text) <= MAX_TEXT_CHARS:
         return text
     return text[:MAX_TEXT_CHARS] + f"\n... (truncated, {len(text) - MAX_TEXT_CHARS} more chars)"
 
-
 def _json(payload: Any) -> str:
     return _truncate(json.dumps(payload, indent=2, ensure_ascii=False))
-
 
 # LEARN: auth_store.AuthStoreError is the base of github_auth.GitHubAuthError, so
 # listing it also covers a corrupt brain/auth.json surfacing mid-call.
 _EXPECTED = (GitHubApiError, auth_store.AuthStoreError, ValueError, httpx.HTTPError, KeyError, TypeError)
 # _run_git raises a bare RuntimeError when git itself is missing.
 _EXPECTED_GIT = _EXPECTED + (RuntimeError, OSError, subprocess.SubprocessError)
-
 
 def _github_tool(what: str, *, expected: tuple[type[BaseException], ...] = _EXPECTED):
     """Attach the shared "is GitHub connected?" guard and error envelope to a tool.
@@ -149,7 +130,6 @@ def _github_tool(what: str, *, expected: tuple[type[BaseException], ...] = _EXPE
     also sets ``__wrapped__`` for ``signature`` to follow) every GitHub tool would
     silently degrade to a no-argument ``(*args, **kwargs)`` schema.
     """
-
     def decorate(fn):
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> str:
@@ -165,9 +145,7 @@ def _github_tool(what: str, *, expected: tuple[type[BaseException], ...] = _EXPE
 
     return decorate
 
-
 # --- Read-only: account, repos, files, code -----------------------------------
-
 
 @_github_tool("checking GitHub status")
 def github_status() -> str:
@@ -190,7 +168,6 @@ def github_status() -> str:
             "rate_limit_reset_epoch": resp.headers.get("X-RateLimit-Reset"),
         }
     )
-
 
 @_github_tool("searching repositories")
 def github_search_repositories(query: str, limit: int = 10) -> str:
@@ -227,7 +204,6 @@ def github_search_repositories(query: str, limit: int = 10) -> str:
     ]
     return _json(results)
 
-
 @_github_tool("fetching repository")
 def github_get_repository(repo: str) -> str:
     """
@@ -258,7 +234,6 @@ def github_get_repository(repo: str) -> str:
         }
     )
 
-
 @_github_tool("listing repository contents")
 def github_list_repository_contents(repo: str, path: str = "", ref: str = "") -> str:
     """
@@ -283,7 +258,6 @@ def github_list_repository_contents(repo: str, path: str = "", ref: str = "") ->
     ]
     return _json(entries)
 
-
 @_github_tool("reading repository file")
 def github_read_repository_file(repo: str, path: str, ref: str = "") -> str:
     """
@@ -305,7 +279,6 @@ def github_read_repository_file(repo: str, path: str, ref: str = "") -> str:
     if data.get("encoding") != "base64":
         return f"Error: unsupported encoding '{data.get('encoding')}' for this file."
     return _truncate(base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace"))
-
 
 @_github_tool("searching code")
 def github_search_code(query: str, repo: str = "", limit: int = 15) -> str:
@@ -336,7 +309,6 @@ def github_search_code(query: str, repo: str = "", limit: int = 15) -> str:
     ]
     return _json(results)
 
-
 @_github_tool("listing branches")
 def github_list_branches(repo: str, limit: int = 30) -> str:
     """
@@ -352,7 +324,6 @@ def github_list_branches(repo: str, limit: int = 30) -> str:
     slug = _repo_slug(repo)
     data = _request("GET", f"/repos/{slug}/branches", params={"per_page": _clamp_limit(limit)}).json()
     return _json([{"name": b.get("name"), "protected": b.get("protected")} for b in data])
-
 
 @_github_tool("listing commits")
 def github_list_commits(repo: str, branch: str = "", limit: int = 20) -> str:
@@ -383,9 +354,7 @@ def github_list_commits(repo: str, branch: str = "", limit: int = 20) -> str:
     ]
     return _json(results)
 
-
 # --- Read-only: issues and pull requests ---------------------------------------
-
 
 @_github_tool("listing issues")
 def github_list_issues(repo: str, state: str = "open", limit: int = 20) -> str:
@@ -420,7 +389,6 @@ def github_list_issues(repo: str, state: str = "open", limit: int = 20) -> str:
     ]
     return _json(results)
 
-
 @_github_tool("fetching issue")
 def github_get_issue(repo: str, number: int) -> str:
     """
@@ -447,7 +415,6 @@ def github_get_issue(repo: str, number: int) -> str:
             "url": data.get("html_url"),
         }
     )
-
 
 @_github_tool("listing issue comments")
 def github_list_issue_comments(repo: str, number: int, limit: int = 20) -> str:
@@ -476,7 +443,6 @@ def github_list_issue_comments(repo: str, number: int, limit: int = 20) -> str:
         for c in data
     ]
     return _json(results)
-
 
 @_github_tool("searching issues")
 def github_search_issues(query: str, limit: int = 20) -> str:
@@ -507,7 +473,6 @@ def github_search_issues(query: str, limit: int = 20) -> str:
         for i in items
     ]
     return _json(results)
-
 
 @_github_tool("listing pull requests")
 def github_list_pull_requests(repo: str, state: str = "open", limit: int = 20) -> str:
@@ -543,7 +508,6 @@ def github_list_pull_requests(repo: str, state: str = "open", limit: int = 20) -
     ]
     return _json(results)
 
-
 @_github_tool("fetching pull request")
 def github_get_pull_request(repo: str, number: int) -> str:
     """
@@ -576,7 +540,6 @@ def github_get_pull_request(repo: str, number: int) -> str:
         }
     )
 
-
 @_github_tool("fetching pull request diff")
 def github_get_pull_request_diff(repo: str, number: int) -> str:
     """
@@ -598,7 +561,6 @@ def github_get_pull_request_diff(repo: str, number: int) -> str:
     if len(text) > MAX_TEXT_CHARS:
         text = text[:MAX_TEXT_CHARS] + f"\n... (truncated, {len(text) - MAX_TEXT_CHARS} more chars)"
     return text or "(empty diff)"
-
 
 @_github_tool("listing pull request files")
 def github_list_pull_request_files(repo: str, number: int, limit: int = 30) -> str:
@@ -629,9 +591,7 @@ def github_list_pull_request_files(repo: str, number: int, limit: int = 30) -> s
     ]
     return _json(results)
 
-
 # --- Read-only: Actions and notifications --------------------------------------
-
 
 @_github_tool("listing workflow runs")
 def github_list_workflow_runs(repo: str, limit: int = 10) -> str:
@@ -665,7 +625,6 @@ def github_list_workflow_runs(repo: str, limit: int = 10) -> str:
     ]
     return _json(results)
 
-
 @_github_tool("fetching workflow run")
 def github_get_workflow_run(repo: str, run_id: int) -> str:
     """
@@ -692,7 +651,6 @@ def github_get_workflow_run(repo: str, run_id: int) -> str:
             "url": data.get("html_url"),
         }
     )
-
 
 @_github_tool("listing notifications")
 def github_list_notifications(limit: int = 20, unread_only: bool = True) -> str:
@@ -723,16 +681,13 @@ def github_list_notifications(limit: int = 20, unread_only: bool = True) -> str:
     ]
     return _json(results)
 
-
 # --- Write actions (approval-gated) --------------------------------------------
-
 
 def _approval(action: str, intent: dict[str, Any], summary: str, approval_token: str) -> str | None:
     from tools import computer_tools
 
     target = {"pid": 0, "window_id": 0, "title": intent.get("repo", "github"), "app_name": "GitHub API"}
     return computer_tools._approval_gate(action, intent, target, approval_token, summary)
-
 
 @_github_tool("creating issue")
 def github_create_issue(repo: str, title: str, body: str = "", approval_token: str = "") -> str:
@@ -764,7 +719,6 @@ def github_create_issue(repo: str, title: str, body: str = "", approval_token: s
     ).json()
     return _json({"number": data.get("number"), "url": data.get("html_url")})
 
-
 @_github_tool("commenting on issue")
 def github_comment_on_issue(repo: str, number: int, body: str, approval_token: str = "") -> str:
     """
@@ -795,7 +749,6 @@ def github_comment_on_issue(repo: str, number: int, body: str, approval_token: s
     ).json()
     return _json({"url": data.get("html_url")})
 
-
 @_github_tool("closing issue")
 def github_close_issue(repo: str, number: int, approval_token: str = "") -> str:
     """
@@ -820,7 +773,6 @@ def github_close_issue(repo: str, number: int, approval_token: str = "") -> str:
         "PATCH", f"/repos/{slug}/issues/{int(number)}", json={"state": "closed"},
     ).json()
     return _json({"number": data.get("number"), "state": data.get("state")})
-
 
 @_github_tool("creating pull request")
 def github_create_pull_request(
@@ -858,7 +810,6 @@ def github_create_pull_request(
     ).json()
     return _json({"number": data.get("number"), "url": data.get("html_url")})
 
-
 @_github_tool("merging pull request")
 def github_merge_pull_request(
     repo: str, number: int, merge_method: str = "merge", approval_token: str = "",
@@ -890,7 +841,6 @@ def github_merge_pull_request(
     ).json()
     return _json({"merged": data.get("merged"), "message": data.get("message")})
 
-
 @_github_tool("starring repository")
 def github_star_repository(repo: str, approval_token: str = "") -> str:
     """
@@ -912,9 +862,7 @@ def github_star_repository(repo: str, approval_token: str = "") -> str:
     _request("PUT", f"/user/starred/{slug}")
     return f"Starred {repo}."
 
-
 # --- Git (clone/pull/push via ephemeral OAuth credential) ----------------------
-
 
 _GIT_ENV_ALLOWLIST = (
     "SYSTEMROOT", "WINDIR", "COMSPEC", "PATH", "PATHEXT",
@@ -928,12 +876,10 @@ _GIT_ENV_ALLOWLIST = (
     "http_proxy", "https_proxy", "no_proxy", "all_proxy",
 )
 
-
 def _git_credential_helper_command() -> str:
     python_bin = str(Path(sys.executable).resolve())
     auth_script = str(Path(github_auth.__file__).resolve())
     return f"!{shlex.quote(python_bin)} -B {shlex.quote(auth_script)} credential"
-
 
 def _git_environment() -> dict[str, str]:
     """Return a minimal, non-interactive environment for Git and its children."""
@@ -951,7 +897,6 @@ def _git_environment() -> dict[str, str]:
     })
     return git_env
 
-
 def _git_command(git_bin: str, args: list[str], *, with_oauth: bool) -> list[str]:
     command = [git_bin]
     if with_oauth:
@@ -964,7 +909,6 @@ def _git_command(git_bin: str, args: list[str], *, with_oauth: bool) -> list[str
         ])
     command.extend(args)
     return command
-
 
 def _assign_windows_git_job(process: subprocess.Popen[str]) -> int | None:
     """Bind Git and all descendants to a kill-on-close Windows Job Object."""
@@ -1025,13 +969,11 @@ def _assign_windows_git_job(process: subprocess.Popen[str]) -> int | None:
         raise OSError(error, "AssignProcessToJobObject failed for Git")
     return int(job)
 
-
 def _close_windows_job(handle: int | None) -> None:
     if handle and os.name == "nt":
         import ctypes
 
         ctypes.windll.kernel32.CloseHandle(handle)
-
 
 def _terminate_git_process_tree(process: subprocess.Popen[str]) -> None:
     """Terminate a timed-out Git command and credential/network descendants."""
@@ -1058,7 +1000,6 @@ def _terminate_git_process_tree(process: subprocess.Popen[str]) -> None:
             pass
     if process.poll() is None:
         process.kill()
-
 
 def _run_git(args: list[str], *, cwd: Path | None, token: str = "") -> tuple[int, str, str]:
     git_bin = shutil.which("git")
@@ -1106,11 +1047,9 @@ def _run_git(args: list[str], *, cwd: Path | None, token: str = "") -> tuple[int
     safe_stderr = stderr.replace(token, "[REDACTED]") if token else stderr
     return process.returncode, safe_stdout.strip(), safe_stderr.strip()
 
-
 def _require_git_repo(path: Path) -> None:
     if not (path / ".git").exists():
         raise ValueError(f"{path} is not a git repository (no .git directory).")
-
 
 def _require_github_origin(path: Path, *, push: bool) -> str:
     args = ["remote", "get-url", "--all"]
@@ -1146,7 +1085,6 @@ def _require_github_origin(path: Path, *, push: bool) -> str:
         raise ValueError("Git remote 'origin' must be a canonical URL like https://github.com/owner/repo.git.")
     return url
 
-
 @_github_tool("cloning repository", expected=_EXPECTED_GIT)
 def git_clone_repository(repo: str, dest_path: str, ref: str = "") -> str:
     """
@@ -1175,7 +1113,6 @@ def git_clone_repository(repo: str, dest_path: str, ref: str = "") -> str:
         return f"Error cloning {repo}: {git_err or out or 'unknown git error'}"
     return f"Cloned {repo} to {dest}."
 
-
 @_github_tool("pulling repository", expected=_EXPECTED_GIT)
 def git_pull_repository(repo_path: str) -> str:
     """
@@ -1195,7 +1132,6 @@ def git_pull_repository(repo_path: str) -> str:
     if code != 0:
         return f"Error pulling {path}: {git_err or out or 'unknown git error'}"
     return out or git_err or "Already up to date."
-
 
 @_github_tool("pushing changes", expected=_EXPECTED_GIT)
 def git_push_changes(

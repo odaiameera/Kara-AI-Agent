@@ -13,12 +13,6 @@ A local provider (``ollama-local``) is always included.
 Use ``load_chat_providers()`` / ``get_chat_provider()`` for runtime ``ChatProvider``
 instances; ``Provider`` records are the persisted configuration layer.
 
-STUDY GUIDE
------------
-* Discovers Ollama providers from environment variables and stores defs in JSON.
-* ``Provider`` dataclass holds host, API key, and credential checks.
-* ``to_chat_provider()`` builds a ``ChatProvider`` adapter from a config record.
-* Key concepts: ``@dataclass``, ``@property``, ``os.environ.items()``, factory pattern.
 """
 from __future__ import annotations
 
@@ -30,7 +24,6 @@ import config
 from providers.base import ChatProvider
 
 PROVIDERS_FILE = config.BRAIN_DIR / "providers.json"
-
 
 # LEARN: @dataclass(frozen=True) auto-generates __init__/__repr__; frozen makes instances immutable.
 @dataclass(frozen=True)
@@ -50,7 +43,6 @@ class Provider:
         if self.id == "ollama-local":
             return True
         return bool(self.api_key)
-
 
 def _discover_provider_defs_from_env() -> list[dict]:
     """Build provider definitions by scanning environment variables."""
@@ -120,7 +112,6 @@ def _discover_provider_defs_from_env() -> list[dict]:
 
     return defs
 
-
 def _discover_openai_compatible_defs(seen_ids: set[str]) -> list[dict]:
     """Discover generic OpenAI-compatible backends from the environment.
 
@@ -163,7 +154,6 @@ def _discover_openai_compatible_defs(seen_ids: set[str]) -> list[dict]:
         seen_ids.add(provider_id)
     return defs
 
-
 def seed_providers_file() -> None:
     """Create brain/providers.json from .env on first run."""
     config.ensure_brain()
@@ -171,13 +161,11 @@ def seed_providers_file() -> None:
     data = {"providers": defs}
     PROVIDERS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-
 def _resolve_api_key(api_key_env: str | None) -> str | None:
     if not api_key_env:
         return None
     value = os.getenv(api_key_env, "").strip()
     return value or None
-
 
 def load_providers() -> list[Provider]:
     """Load all configured providers, resolving API keys from .env."""
@@ -209,7 +197,6 @@ def load_providers() -> list[Provider]:
         )
     return providers
 
-
 def _sync_providers_from_env() -> None:
     """Add any newly discovered env-based providers to providers.json."""
     try:
@@ -229,13 +216,11 @@ def _sync_providers_from_env() -> None:
     if added:
         PROVIDERS_FILE.write_text(json.dumps(raw, indent=2), encoding="utf-8")
 
-
 def get_provider(provider_id: str) -> Provider | None:
     for p in load_providers():
         if p.id == provider_id:
             return p
     return None
-
 
 def to_chat_provider(provider: Provider) -> ChatProvider:
     """Build a runtime ChatProvider adapter from a persisted Provider record."""
@@ -253,15 +238,12 @@ def to_chat_provider(provider: Provider) -> ChatProvider:
         return OpenAICompatibleProvider(provider)
     raise RuntimeError(f"Unsupported provider type: {provider.type}")
 
-
 def get_chat_provider(provider_id: str) -> ChatProvider | None:
     record = get_provider(provider_id)
     return to_chat_provider(record) if record else None
 
-
 def load_chat_providers() -> list[ChatProvider]:
     return [to_chat_provider(p) for p in load_providers()]
-
 
 def first_reachable_provider() -> ChatProvider | None:
     """Return the first ChatProvider that responds to a health check."""
@@ -272,13 +254,11 @@ def first_reachable_provider() -> ChatProvider | None:
             return provider
     return None
 
-
 @dataclass
 class ProviderModels:
     provider: ChatProvider
     models: list[str]
     error: str | None = None
-
 
 def discover_all_models() -> list[ProviderModels]:
     """Query every configured provider for its available models."""

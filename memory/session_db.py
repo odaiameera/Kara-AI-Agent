@@ -1,10 +1,5 @@
 """SQLite session store — conversation history survives gateway restarts.
 
-STUDY GUIDE
------------
-* Persists chat messages and session metadata in ``brain/state.db``.
-* Uses a context manager for safe connect/commit/close on every database operation.
-* Key concepts: ``@contextmanager``, ``with`` statements, SQLite placeholders ``?``, ``sqlite3.Row``.
 """
 from __future__ import annotations
 
@@ -22,11 +17,9 @@ DB_PATH = config.BRAIN_DIR / "state.db"
 # repeated calls from hot paths (every message append) become free no-ops.
 _initialized = False
 
-
 def _now() -> str:
     # LEARN: timezone.utc gives aware UTC datetimes; isoformat() stores a sortable string.
     return datetime.now(timezone.utc).isoformat()
-
 
 @contextmanager
 def _conn():
@@ -40,7 +33,6 @@ def _conn():
         conn.commit()
     finally:
         conn.close()
-
 
 def init_db() -> None:
     global _initialized
@@ -109,7 +101,6 @@ def init_db() -> None:
         _backfill_legacy_tool_call_ids_in_conn(conn)
     _initialized = True
 
-
 def _backfill_legacy_tool_call_ids_in_conn(conn: sqlite3.Connection) -> None:
     """Link pre-migration tool rows to their preceding assistant call IDs.
 
@@ -145,17 +136,14 @@ def _backfill_legacy_tool_call_ids_in_conn(conn: sqlite3.Connection) -> None:
         elif row["role"] == "user":
             pending_call_ids = []
 
-
 def backfill_legacy_tool_call_ids() -> None:
     """Public, idempotent migration for tests and existing brain databases."""
     init_db()
     with _conn() as conn:
         _backfill_legacy_tool_call_ids_in_conn(conn)
 
-
 def build_session_key(platform: str, user_id: int | str) -> str:
     return f"kara:{platform}:user:{user_id}"
-
 
 def ensure_session(
     session_key: str,
@@ -179,7 +167,6 @@ def ensure_session(
             (session_key, channel, provider_id, model, now, now),
         )
 
-
 def update_session_model(session_key: str, provider_id: str, model: str) -> None:
     with _conn() as conn:
         conn.execute(
@@ -187,11 +174,9 @@ def update_session_model(session_key: str, provider_id: str, model: str) -> None
             (provider_id, model, _now(), session_key),
         )
 
-
 def clear_messages(session_key: str) -> None:
     with _conn() as conn:
         conn.execute("DELETE FROM messages WHERE session_key=?", (session_key,))
-
 
 def load_messages(session_key: str) -> list[dict[str, Any]]:
     init_db()
@@ -218,7 +203,6 @@ def load_messages(session_key: str) -> list[dict[str, Any]]:
             msg["is_error"] = True
         messages.append(msg)
     return messages
-
 
 def append_message(session_key: str, msg: dict[str, Any]) -> None:
     init_db()
@@ -249,7 +233,6 @@ def append_message(session_key: str, msg: dict[str, Any]) -> None:
             "UPDATE sessions SET updated_at=? WHERE session_key=?",
             (_now(), session_key),
         )
-
 
 def replace_messages(session_key: str, messages: list[dict[str, Any]]) -> None:
     """Atomically swap a session's stored history.
@@ -284,11 +267,9 @@ def replace_messages(session_key: str, messages: list[dict[str, Any]]) -> None:
             (_now(), session_key),
         )
 
-
 # --- Turn telemetry ------------------------------------------------------------
 # Providers report token counts on every response and Kara used to discard them,
 # so there was no way to see what a conversation cost or how hard it worked.
-
 
 def record_turn(
     session_key: str,
@@ -329,7 +310,6 @@ def record_turn(
             ),
         )
 
-
 def usage_summary(session_key: str | None = None, *, since: str | None = None) -> dict[str, Any]:
     """Aggregate turn telemetry, optionally for one session or a time window."""
     init_db()
@@ -361,7 +341,6 @@ def usage_summary(session_key: str | None = None, *, since: str | None = None) -
     data["total_tokens"] = data["prompt_tokens"] + data["completion_tokens"]
     return data
 
-
 def mark_interrupted(session_key: str) -> None:
     with _conn() as conn:
         conn.execute(
@@ -369,14 +348,12 @@ def mark_interrupted(session_key: str) -> None:
             (_now(), session_key),
         )
 
-
 def clear_interrupted(session_key: str) -> None:
     with _conn() as conn:
         conn.execute(
             "UPDATE sessions SET interrupted=0, updated_at=? WHERE session_key=?",
             (_now(), session_key),
         )
-
 
 def is_interrupted(session_key: str) -> bool:
     with _conn() as conn:
@@ -386,12 +363,10 @@ def is_interrupted(session_key: str) -> bool:
         ).fetchone()
     return bool(row and row["interrupted"])
 
-
 # --- Session summaries ---------------------------------------------------------
 # What Kara remembers about a past conversation. Raw turns stay in `messages` for
 # replay; only these summaries feed semantic recall, so search returns decisions
 # rather than chatter.
-
 
 def save_session_summary(
     session_key: str, title: str, summary: str, *, created_at: str | None = None
@@ -411,7 +386,6 @@ def save_session_summary(
         )
         return int(cursor.lastrowid or 0)
 
-
 def load_session_summaries() -> list[dict[str, Any]]:
     init_db()
     with _conn() as conn:
@@ -420,7 +394,6 @@ def load_session_summaries() -> list[dict[str, Any]]:
             "ORDER BY id"
         ).fetchall()
     return [dict(row) for row in rows]
-
 
 def session_summary_fingerprint() -> tuple[int, int, str]:
     """Cheap change detector for the vector index: (count, max id, max created_at)."""
@@ -431,7 +404,6 @@ def session_summary_fingerprint() -> tuple[int, int, str]:
             "COALESCE(MAX(created_at), '') AS max_created FROM session_summaries"
         ).fetchone()
     return (int(row["n"]), int(row["max_id"]), str(row["max_created"]))
-
 
 def has_session_summary(session_key: str, summary: str) -> bool:
     """True if this exact summary is already stored (keeps migration idempotent)."""

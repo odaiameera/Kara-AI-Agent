@@ -1,10 +1,5 @@
 """Gateway restart, update detection, and self-replacement.
 
-STUDY GUIDE
------------
-* Detects code changes via SHA-256 fingerprint of all .py source files.
-* Writes restart flags and spawns a replacement gateway process (hidden on Windows).
-* Key concepts: ``Path.rglob``, ``subprocess.Popen``, ``hashlib``, detached processes.
 """
 from __future__ import annotations
 
@@ -23,7 +18,6 @@ log = logging.getLogger("kara.gateway.restart")
 SKIP_DIR_NAMES = {".venv", "brain", "__pycache__", ".git", "bin"}
 POLL_INTERVAL = float(os.getenv("GATEWAY_POLL_INTERVAL", "10"))
 
-
 def _iter_source_files() -> list[Path]:
     files: list[Path] = []
     # LEARN: os.walk lets us prune directories in-place (dirnames[:] = ...) so
@@ -36,11 +30,9 @@ def _iter_source_files() -> list[Path]:
                 files.append(Path(dirpath) / name)
     return files
 
-
 # LEARN: Cache per-file hashes keyed by (mtime, size) — unchanged files are not
 # re-read from disk on every 10s poll, only stat()ed.
 _file_hash_cache: dict[str, tuple[int, int, str]] = {}
-
 
 def compute_code_fingerprint() -> str:
     h = hashlib.sha256()
@@ -60,23 +52,19 @@ def compute_code_fingerprint() -> str:
             pass
     return h.hexdigest()[:16]
 
-
 def load_stored_fingerprint() -> str:
     if config.CODE_FINGERPRINT_FILE.exists():
         return config.CODE_FINGERPRINT_FILE.read_text(encoding="utf-8").strip()
     return ""
 
-
 def save_fingerprint(fp: str) -> None:
     config.ensure_brain()
     config.CODE_FINGERPRINT_FILE.write_text(fp, encoding="utf-8")
-
 
 def request_restart(reason: str = "manual") -> None:
     config.ensure_brain()
     config.RESTART_FLAG.write_text(f"{time.time()}:{reason}\n", encoding="utf-8")
     log.info("Restart requested (%s)", reason)
-
 
 def queue_restart_notification(chat_id: int) -> None:
     """Remember a Telegram chat to ping once the replacement gateway is online."""
@@ -96,7 +84,6 @@ def queue_restart_notification(chat_id: int) -> None:
         json.dumps({"chat_ids": chat_ids}), encoding="utf-8"
     )
 
-
 def consume_restart_notifications() -> list[int]:
     """Return queued chat ids and clear the notify file."""
     import json
@@ -111,15 +98,12 @@ def consume_restart_notifications() -> list[int]:
     config.RESTART_NOTIFY_FILE.unlink(missing_ok=True)
     return chat_ids
 
-
 def clear_restart_flag() -> None:
     if config.RESTART_FLAG.exists():
         config.RESTART_FLAG.unlink()
 
-
 def restart_requested() -> bool:
     return config.RESTART_FLAG.exists()
-
 
 def code_updated() -> bool:
     current = compute_code_fingerprint()
@@ -129,16 +113,13 @@ def code_updated() -> bool:
         return False
     return current != stored
 
-
 def write_pid() -> None:
     config.ensure_brain()
     config.GATEWAY_PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
 
-
 def clear_pid() -> None:
     if config.GATEWAY_PID_FILE.exists():
         config.GATEWAY_PID_FILE.unlink()
-
 
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
@@ -157,7 +138,6 @@ def _pid_alive(pid: int) -> bool:
         return True
     except OSError:
         return False
-
 
 def claim_restart_leadership() -> bool:
     """Only one gateway instance may orchestrate a restart/spawn."""
@@ -182,7 +162,6 @@ def claim_restart_leadership() -> bool:
     except FileExistsError:
         return False
 
-
 def release_restart_leadership() -> None:
     if not config.RESTART_LOCK_FILE.exists():
         return
@@ -193,7 +172,6 @@ def release_restart_leadership() -> None:
         pid = -1
     if pid in (-1, os.getpid()):
         config.RESTART_LOCK_FILE.unlink(missing_ok=True)
-
 
 def acquire_instance_lock() -> bool:
     """Ensure only one gateway polls Telegram at a time."""
@@ -218,7 +196,6 @@ def acquire_instance_lock() -> bool:
     except FileExistsError:
         return False
 
-
 def release_instance_lock() -> None:
     if not config.GATEWAY_INSTANCE_LOCK.exists():
         return
@@ -229,7 +206,6 @@ def release_instance_lock() -> None:
         pid = -1
     if pid in (-1, os.getpid()):
         config.GATEWAY_INSTANCE_LOCK.unlink(missing_ok=True)
-
 
 def spawn_replacement() -> None:
     """Start a fresh gateway process hidden on Windows (no console window)."""

@@ -1,10 +1,5 @@
 """Local embeddings via the active chat provider (prefers local Ollama).
 
-STUDY GUIDE
------------
-* High-level API for turning text into float vectors used by semantic memory search.
-* Picks a working provider (local first, then any reachable host).
-* Key concepts: ``from __future__ import annotations``, provider fallback, short TTL cache.
 """
 from __future__ import annotations
 
@@ -21,7 +16,6 @@ EmbeddingError = ProviderError
 _PROVIDER_TTL = 60.0
 _provider_cache: tuple[float, ChatProvider] | None = None
 
-
 def _embed_provider() -> ChatProvider | None:
     # LEARN: Leading underscore marks a "private" helper — convention, not enforced by Python.
     global _provider_cache
@@ -37,12 +31,10 @@ def _embed_provider() -> ChatProvider | None:
         _provider_cache = (now, found)
     return found
 
-
 def is_available() -> bool:
     # LEARN: _embed_provider only returns providers that passed a reachability
     # check, so no second health check is needed here.
     return _embed_provider() is not None
-
 
 def embed(text: str) -> list[float]:
     # LEARN: Raises EmbeddingError if no provider — callers use try/except or is_available() first.
@@ -50,7 +42,6 @@ def embed(text: str) -> list[float]:
     if provider is None:
         raise EmbeddingError("No reachable provider for embeddings.")
     return provider.embed(text)
-
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
     provider = _embed_provider()

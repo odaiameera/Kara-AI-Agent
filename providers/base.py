@@ -6,12 +6,6 @@ to know whether a response came from Ollama, Codex, or an OpenAI-compatible
 endpoint. Without it the "provider abstraction" is just Ollama's response shape
 wearing a Protocol, which is what blocked token accounting and new backends.
 
-STUDY GUIDE
------------
-* Defines the ``ChatProvider`` protocol every LLM backend must implement.
-* ``ChatResult``/``ToolCall``/``Usage`` normalize one model turn across providers.
-* ``ProviderError`` is the shared base for provider-specific failures.
-* Key concepts: ``typing.Protocol``, ``@dataclass``, structural subtyping.
 """
 from __future__ import annotations
 
@@ -25,7 +19,6 @@ import config
 
 _T = TypeVar("_T")
 
-
 class ProviderError(RuntimeError):
     """Raised when a chat provider API request fails.
 
@@ -33,7 +26,6 @@ class ProviderError(RuntimeError):
     dropped connection) from a real client error. Without it every failure looked
     the same and a single 429 ended the whole turn.
     """
-
     def __init__(
         self,
         message: str,
@@ -45,14 +37,11 @@ class ProviderError(RuntimeError):
         self.retryable = retryable
         self.status_code = status_code
 
-
 # 429 is rate limiting; 5xx are upstream failures. Both are worth another try.
 RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
-
 def is_retryable_status(status_code: int | None) -> bool:
     return status_code in RETRYABLE_STATUS
-
 
 def call_with_retry(
     operation: Callable[[], _T],
@@ -86,7 +75,6 @@ def call_with_retry(
     assert last is not None  # unreachable: the loop either returns or raises
     raise last
 
-
 def parse_tool_arguments(raw: Any) -> dict[str, Any]:
     """Normalize tool call arguments (object or JSON string) into a dict."""
     if isinstance(raw, dict):
@@ -99,11 +87,9 @@ def parse_tool_arguments(raw: Any) -> dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     return {}
 
-
 @dataclass(frozen=True)
 class ToolCall:
     """One tool invocation requested by the model."""
-
     id: str
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
@@ -126,11 +112,9 @@ class ToolCall:
             },
         }
 
-
 @dataclass(frozen=True)
 class Usage:
     """Token accounting for one request. Zero means the provider did not report."""
-
     prompt_tokens: int = 0
     completion_tokens: int = 0
 
@@ -142,11 +126,9 @@ class Usage:
     def reported(self) -> bool:
         return bool(self.prompt_tokens or self.completion_tokens)
 
-
 @dataclass(frozen=True)
 class ChatResult:
     """One assistant turn, normalized across providers."""
-
     content: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
     usage: Usage = field(default_factory=Usage)
@@ -170,7 +152,6 @@ class ChatResult:
             message["tool_calls"] = [call.to_wire() for call in self.tool_calls]
         return message
 
-
 def tool_calls_from_openai_shape(raw_calls: Any) -> tuple[ToolCall, ...]:
     calls: list[ToolCall] = []
     for index, call in enumerate(raw_calls or []):
@@ -190,7 +171,6 @@ def tool_calls_from_openai_shape(raw_calls: Any) -> tuple[ToolCall, ...]:
             )
         )
     return tuple(calls)
-
 
 def chat_result_from_ollama(data: Any) -> ChatResult:
     """Map an Ollama ``/api/chat`` response onto ChatResult."""
@@ -220,11 +200,9 @@ def chat_result_from_ollama(data: Any) -> ChatResult:
         raw=data,
     )
 
-
 @runtime_checkable
 class ChatProvider(Protocol):
     """Minimal interface for chat + embedding backends."""
-
     id: str
     name: str
     type: str
@@ -252,7 +230,6 @@ class ChatProvider(Protocol):
     def embed_batch(
         self, texts: list[str], model: str | None = None
     ) -> list[list[float]]: ...
-
 
 # Future provider modules (not implemented yet):
 #

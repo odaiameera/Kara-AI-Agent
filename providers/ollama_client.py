@@ -3,11 +3,6 @@
 Each call takes an explicit ``Provider`` so Kara can talk to multiple Ollama
 hosts/keys (cloud accounts, local daemon, etc.).
 
-STUDY GUIDE
------------
-* Wraps Ollama REST API calls (chat, embeddings, model list) with httpx.
-* Normalizes errors into ``OllamaError`` and parses tool-call argument JSON.
-* Key concepts: custom exceptions, httpx GET/POST, ``raise ... from e``, keyword-only args.
 """
 from __future__ import annotations
 
@@ -19,18 +14,14 @@ import config
 from providers.base import ProviderError, is_retryable_status
 from providers.registry import Provider
 
-
 # LEARN: Subclassing ProviderError gives a named exception type callers can catch specifically.
 class OllamaError(ProviderError):
     """Raised when an Ollama API request fails."""
-
-
 def _headers(provider: Provider) -> dict[str, str]:
     h = {"Content-Type": "application/json"}
     if provider.api_key:
         h["Authorization"] = f"Bearer {provider.api_key}"
     return h
-
 
 def is_reachable(provider: Provider) -> bool:
     # LEARN: Bare except returns False on any network/HTTP failure — quick health check.
@@ -43,7 +34,6 @@ def is_reachable(provider: Provider) -> bool:
         return resp.status_code == 200
     except Exception:
         return False
-
 
 def list_models(provider: Provider) -> list[str]:
     """Return available model names from an Ollama provider."""
@@ -59,7 +49,6 @@ def list_models(provider: Provider) -> list[str]:
         return [m["name"] for m in data.get("models", []) if m.get("name")]
     except Exception as e:
         raise OllamaError(f"Could not list models from {provider.name}: {e}") from e
-
 
 def chat(
     provider: Provider,
@@ -109,7 +98,6 @@ def chat(
             retryable=True,
         ) from e
 
-
 def embed(provider: Provider, text: str, model: str | None = None) -> list[float]:
     """Call Ollama ``/api/embeddings`` for a single string."""
     model = model or config.EMBED_MODEL
@@ -130,7 +118,6 @@ def embed(provider: Provider, text: str, model: str | None = None) -> list[float
         raise OllamaError(f"Ollama embeddings HTTP {e.response.status_code}") from e
     except httpx.RequestError as e:
         raise OllamaError(f"Could not reach {provider.host}: {e}") from e
-
 
 def embed_batch(
     provider: Provider, texts: list[str], model: str | None = None
@@ -158,7 +145,6 @@ def embed_batch(
     except Exception:
         pass  # Old server or batch failure — fall back to sequential below.
     return [embed(provider, t, model=model) for t in texts]
-
 
 # Tool-argument normalization now lives in provider_base.parse_tool_arguments,
 # shared by every adapter rather than duplicated per transport.

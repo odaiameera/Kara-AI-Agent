@@ -13,17 +13,6 @@ Why HTML and not MarkdownV2? HTML is Telegram's most forgiving parse mode: only
 ``<``, ``>`` and ``&`` must be escaped, whereas MarkdownV2 requires escaping ~18
 characters and hard-fails on the smallest slip. The caller also keeps a
 plain-text fallback, so a malformed message can never block a reply.
-
-STUDY GUIDE
------------
-* Code spans/blocks are "stashed" as placeholders FIRST so Markdown inside them
-  stays literal (a ``*`` inside code must not become italic).
-* Everything else is HTML-escaped, THEN one regex per construct rewrites it —
-  order matters (headings before bold; bold before italic; see comments).
-* Placeholders use Unicode private-use characters (``\\ue000``/``\\ue001``) — they
-  never appear in chat text and no Markdown rule touches them, so restoring code
-  last is safe. (NUL bytes would work too but can be mangled by consoles/APIs.)
-* Key concepts: ``re.sub`` with function replacements, ``html.escape``, closures.
 """
 from __future__ import annotations
 
@@ -52,7 +41,6 @@ _LINK_RE = re.compile(r"\[([^\]\n]+?)\]\((https?://[^)\s]+|tg://[^)\s]+)\)")
 TELEGRAM_MAX = 4096
 # LEARN: Split source a bit under the hard cap so HTML tag expansion still fits.
 SOURCE_LIMIT = 3800
-
 
 def to_telegram_html(text: str) -> str:
     """Convert a Markdown string into Telegram's supported HTML subset."""
@@ -109,13 +97,11 @@ def to_telegram_html(text: str) -> str:
         text = text.replace(f"{_PH_OPEN}B{i}{_PH_CLOSE}", val)
     return text
 
-
 def _link_sub(m: re.Match) -> str:
     label = m.group(1)
     # LEARN: A stray double-quote would break the href attribute — encode it.
     url = m.group(2).replace('"', "%22")
     return f'<a href="{url}">{label}</a>'
-
 
 def split_source(text: str, limit: int = SOURCE_LIMIT) -> list[str]:
     """Split Markdown at line boundaries so each part's HTML fits Telegram.
