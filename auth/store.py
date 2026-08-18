@@ -26,15 +26,20 @@ import config
 
 AUTH_FILE_NAME = "auth.json"
 
+
 class AuthStoreError(RuntimeError):
     """Raised when Kara's shared auth store is unreadable or malformed."""
+
+
 def auth_file() -> Path:
     """Return Kara's private auth store path under the gitignored brain directory."""
     return config.BRAIN_DIR / AUTH_FILE_NAME
 
+
 def now_iso() -> str:
     """Return the current UTC time as an ISO-8601 ``...Z`` string."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 def load_store() -> dict[str, Any]:
     """Read the whole auth store, returning an empty one if it doesn't exist yet."""
@@ -51,17 +56,24 @@ def load_store() -> dict[str, Any]:
     data.setdefault("providers", {})
     return data
 
+
 def save_store(data: dict[str, Any]) -> None:
     """Write the whole auth store atomically (write to .tmp, then replace)."""
     config.ensure_brain()
     path = auth_file()
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    payload = json.dumps(data, indent=2)
     if os.name == "posix":
-        tmp.chmod(0o600)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        os.chmod(tmp, 0o600)
+    else:
+        tmp.write_text(payload, encoding="utf-8")
     tmp.replace(path)
     if os.name == "posix":
-        path.chmod(0o600)
+        os.chmod(path, 0o600)
+
 
 def read_provider(provider_id: str) -> dict[str, Any] | None:
     """Return one provider's stored entry, or None when it isn't logged in."""

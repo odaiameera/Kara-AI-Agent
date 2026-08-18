@@ -17,12 +17,10 @@ def render_linux_unit(repo: Path, python: Path) -> str:
     return (
         "[Unit]\n"
         "Description=Kara Telegram gateway\n"
-        "After=network-online.target\n"
-        "Wants=network-online.target\n"
         "\n"
         "[Service]\n"
         "Type=simple\n"
-        f'WorkingDirectory="{repo}"\n'
+        f"WorkingDirectory={repo}\n"
         f'ExecStart="{python}" -m gateway.run\n'
         "Restart=on-failure\n"
         "RestartSec=5\n"

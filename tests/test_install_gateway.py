@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,8 +41,10 @@ class LinuxGatewayInstallTests(unittest.TestCase):
         unit = self.xdg / "systemd" / "user" / "kara-gateway.service"
         self.assertTrue(unit.is_file())
         text = unit.read_text(encoding="utf-8")
-        self.assertIn(f'WorkingDirectory="{self.root}"', text)
+        self.assertIn(f"WorkingDirectory={self.root}", text)
+        self.assertNotIn(f'WorkingDirectory="{self.root}"', text)
         self.assertIn(f'ExecStart="{self.python}" -m gateway.run', text)
+        self.assertNotIn("network-online.target", text)
         self.assertNotIn("/home/odai", text)
         self.assertEqual(
             self.calls,
@@ -74,10 +78,30 @@ class LinuxGatewayInstallTests(unittest.TestCase):
 
 
 class LinuxUnitTemplateTests(unittest.TestCase):
-    def test_rendered_unit_quotes_paths_with_spaces(self) -> None:
+    def test_rendered_unit_leaves_working_directory_unquoted(self) -> None:
         repo = Path("/opt/Kara Agent")
         python = repo / ".venv" / "bin" / "python"
         text = install_gateway.render_linux_unit(repo, python)
-        self.assertIn('WorkingDirectory="/opt/Kara Agent"', text)
+        self.assertIn("WorkingDirectory=/opt/Kara Agent", text)
+        self.assertNotIn('WorkingDirectory="', text)
         self.assertIn('ExecStart="/opt/Kara Agent/.venv/bin/python" -m gateway.run', text)
         self.assertIn("WantedBy=default.target", text)
+        self.assertNotIn("network-online.target", text)
+
+    @unittest.skipUnless(shutil.which("systemd-analyze"), "systemd-analyze not installed")
+    def test_rendered_unit_is_accepted_by_systemd(self) -> None:
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        python = repo / ".venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.write_text("", encoding="utf-8")
+        python.chmod(0o755)
+        unit = repo / "kara-gateway.service"
+        unit.write_text(install_gateway.render_linux_unit(repo, python), encoding="utf-8")
+        result = subprocess.run(
+            ["systemd-analyze", "--user", "verify", str(unit)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)

@@ -12,7 +12,8 @@ still change between minor releases.
 ### Added
 
 - Linux systemd user-unit install via `install_gateway.py` (paths filled at
-  install time; nothing machine-specific is committed).
+  install time; nothing machine-specific is committed). `WorkingDirectory`
+  is unquoted so systemd accepts the unit.
 - GitHub Actions CI: `uv sync --frozen` and the unittest suite on CPython 3.14.
 
 ### Changed
